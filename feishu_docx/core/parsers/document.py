@@ -74,42 +74,63 @@ class DocumentParser:
 
     def _preprocess(self):
         """预处理：获取 Block 列表并构建树结构"""
-        from rich.progress import Progress, SpinnerColumn, TextColumn
+        from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
 
+        # 阶段1: 获取 Block 列表
         with Progress(
             SpinnerColumn(),
             TextColumn("[progress.description]{task.description}"),
             transient=True,
         ) as progress:
-            # 获取 Block 列表
-            progress.add_task(description="获取文档结构...", total=None)
+            progress.add_task(description="[cyan]获取文档结构...[/cyan]", total=None)
             raw_data_list = self.sdk.get_document_block_list(
                 document_id=self.document_id,
                 user_access_token=self.user_access_token,
             )
 
-        console.print(f"  [dim]共 {len(raw_data_list)} 个 Block[/dim]")
+        total_blocks = len(raw_data_list)
+        console.print(f"  [dim]发现 {total_blocks} 个 Block[/dim]")
 
-        # 1. 反序列化
-        for item in raw_data_list:
-            try:
-                block = FeishuBlock(**item)
-                self.blocks_map[block.block_id] = block
-            except Exception as e:
-                console.print(f"[yellow]跳过无法解析的 Block: {item.get('block_id')} - {e}[/yellow]")
-                continue
+        if total_blocks == 0:
+            return
 
-        # 2. 构建树结构
-        for block in self.blocks_map.values():
-            if block.children:
-                ordered_children = []
-                for child_id in block.children:
-                    child_block = self.blocks_map.get(child_id)
-                    if child_block:
-                        ordered_children.append(child_block)
-                block.sub_blocks = ordered_children
+        # 阶段2: 反序列化 Block
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(bar_width=20),
+            TaskProgressColumn(),
+            transient=True,
+        ) as progress:
+            task = progress.add_task("[cyan]解析 Block...[/cyan]", total=total_blocks)
+            
+            for item in raw_data_list:
+                try:
+                    block = FeishuBlock(**item)
+                    self.blocks_map[block.block_id] = block
+                except Exception as e:
+                    console.print(f"  [yellow]跳过: {item.get('block_id', '?')[:8]}... - {e}[/yellow]")
+                finally:
+                    progress.advance(task)
 
-        # 3. 确定根节点
+        # 阶段3: 构建树结构
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            transient=True,
+        ) as progress:
+            progress.add_task("[cyan]构建树结构...[/cyan]", total=None)
+            
+            for block in self.blocks_map.values():
+                if block.children:
+                    ordered_children = []
+                    for child_id in block.children:
+                        child_block = self.blocks_map.get(child_id)
+                        if child_block:
+                            ordered_children.append(child_block)
+                    block.sub_blocks = ordered_children
+
+        # 确定根节点
         self.root_block = next(
             (b for b in self.blocks_map.values() if b.block_type == BlockType.PAGE),
             None,
@@ -118,6 +139,9 @@ class DocumentParser:
             first_id = raw_data_list[0].get("block_id")
             self.root_block = self.blocks_map.get(first_id)
 
+        console.print(f"  [dim]预处理完成[/dim]")
+
+
     def parse(self) -> str:
         """
         解析文档为 Markdown
@@ -125,17 +149,41 @@ class DocumentParser:
         Returns:
             Markdown 格式的文档内容
         """
+        from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
+
         if not self.root_block:
             console.print("[yellow]> 未找到根 Block，无法解析文档[/yellow]")
             return ""
 
-        title = self._render_text_payload(self.root_block.page)
-        body = self._recursive_render(self.root_block)
+        total_blocks = len(self.blocks_map)
+
+        # 阶段4: 渲染 Markdown
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(bar_width=20),
+            TaskProgressColumn(),
+            transient=True,
+        ) as progress:
+            self._progress = progress
+            self._progress_task = progress.add_task("[cyan]渲染 Markdown...[/cyan]", total=total_blocks)
+            
+            title = self._render_text_payload(self.root_block.page)
+            body = self._recursive_render(self.root_block)
+            
+            self._progress = None
+            self._progress_task = None
+
+        console.print(f"  [dim]渲染完成 ({total_blocks} blocks)[/dim]")
         return f"# {title}\n{body}"
 
     def _recursive_render(self, block: FeishuBlock, depth: int = 0) -> str:
         """递归渲染 Block 树"""
         content = ""
+
+        # 更新进度
+        if hasattr(self, '_progress') and self._progress:
+            self._progress.advance(self._progress_task)
 
         # 1. 渲染自身内容
         self_content = self._render_block_self(block)

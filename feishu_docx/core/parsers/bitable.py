@@ -73,23 +73,52 @@ class BitableParser:
         Returns:
             Markdown 格式的内容，每个数据表作为一个章节
         """
+        from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
+
         self._get_app_token()
 
-        bitables = self.sdk.get_bitable_table_list(
-            app_token=self.app_token,
-            user_access_token=self.user_access_token,
-        )
-
-        sections = []
-        for bitable in bitables:
-            table_data = self.sdk.get_bitable(
+        # 获取表格列表
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            transient=True,
+        ) as progress:
+            progress.add_task("[cyan]获取数据表列表...[/cyan]", total=None)
+            bitables = self.sdk.get_bitable_table_list(
                 app_token=self.app_token,
-                table_id=bitable.table_id,
                 user_access_token=self.user_access_token,
-                table_mode=self.table_mode,
             )
 
-            if table_data:
-                sections.append(f"# {bitable.name}\n\n{table_data}")
+        total_tables = len(bitables)
+        console.print(f"  [dim]发现 {total_tables} 个数据表[/dim]")
 
+        if total_tables == 0:
+            return ""
+
+        sections = []
+
+        # 解析每个数据表
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(bar_width=20),
+            TaskProgressColumn(),
+            transient=True,
+        ) as progress:
+            task = progress.add_task("[cyan]解析数据表...[/cyan]", total=total_tables)
+
+            for bitable in bitables:
+                table_data = self.sdk.get_bitable(
+                    app_token=self.app_token,
+                    table_id=bitable.table_id,
+                    user_access_token=self.user_access_token,
+                    table_mode=self.table_mode,
+                )
+
+                if table_data:
+                    sections.append(f"# {bitable.name}\n\n{table_data}")
+
+                progress.advance(task)
+
+        console.print(f"  [dim]解析完成 ({len(sections)} 个数据表)[/dim]")
         return "\n\n---\n\n".join(sections)
