@@ -76,7 +76,7 @@ Screen {
 }
 
 .field-label {
-    width: 10;
+    width: 9;
     color: #8b949e;
 }
 

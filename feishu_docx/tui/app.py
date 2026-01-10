@@ -51,6 +51,9 @@ class FeishuDocxApp(App):
         self.config = AppConfig.load()
         self.exporting = False
         self._input_history: dict[str, list[str]] = {}
+        # URL 历史
+        self._url_history: list[str] = []
+        self._url_history_index: int = -1
 
     def compose(self) -> ComposeResult:
         # 认证状态
@@ -90,8 +93,9 @@ class FeishuDocxApp(App):
                     yield Input(value="./output", id="output-input", classes="field-input")
 
                 with Horizontal(classes="field-row"):
-                    yield Static("Format", classes="field-label")
-                    yield Static("   markdown", classes="field-value")
+                    yield Static("TBL FMT", classes="field-label")
+                    yield Static(">> ", classes="field-prompt")
+                    yield Input(value="md", id="table-type-input", classes="field-input")
 
                 yield Static("")
                 yield Static("─ Auth ─", classes="panel-title")
@@ -100,6 +104,17 @@ class FeishuDocxApp(App):
                     yield Static("Status", classes="field-label")
                     yield Static("   ", classes="field-prompt")
                     yield Static(auth_text, id="auth-status", classes=auth_class)
+
+                with Horizontal(classes="field-row"):
+                    yield Static("Token", classes="field-label")
+                    yield Static(">> ", classes="field-prompt")
+                    yield Input(
+                        value=os.getenv("FEISHU_ACCESS_TOKEN", "") or "",
+                        id="token-input",
+                        classes="field-input",
+                        password=True,
+                        placeholder="(Access Token, 优先使用)",
+                    )
 
                 with Horizontal(classes="field-row"):
                     yield Static("App ID", classes="field-label")
@@ -130,7 +145,7 @@ class FeishuDocxApp(App):
             # 右侧：日志面板
             with Vertical(id="right-panel"):
                 yield Static("─ Logs ─", classes="panel-title")
-                yield RichLog(id="log-view", auto_scroll=True, markup=True, highlight=True)
+                yield RichLog(id="log-view", auto_scroll=True, markup=True, highlight=True, wrap=True)
 
         yield Footer()
 
@@ -216,7 +231,32 @@ class FeishuDocxApp(App):
     @on(Input.Submitted, "#url-input")
     def on_url_enter(self, event: Input.Submitted):
         """URL 输入回车触发导出"""
+        # 保存到历史
+        url = event.value.strip()
+        if url and (not self._url_history or self._url_history[-1] != url):
+            self._url_history.append(url)
+            self._url_history_index = len(self._url_history)
         self.action_export()
+
+    def on_key(self, event) -> None:
+        """处理上下键浏览 URL 历史"""
+        url_input = self.query_one("#url-input", Input)
+        if not url_input.has_focus:
+            return
+
+        if event.key == "up" and self._url_history:
+            event.prevent_default()
+            if self._url_history_index > 0:
+                self._url_history_index -= 1
+                url_input.value = self._url_history[self._url_history_index]
+        elif event.key == "down" and self._url_history:
+            event.prevent_default()
+            if self._url_history_index < len(self._url_history) - 1:
+                self._url_history_index += 1
+                url_input.value = self._url_history[self._url_history_index]
+            else:
+                self._url_history_index = len(self._url_history)
+                url_input.value = ""
 
     # ==========================================================================
     # 后台任务
@@ -228,6 +268,7 @@ class FeishuDocxApp(App):
 
         url = self.query_one("#url-input", Input).value.strip()
         output_dir = self.query_one("#output-input", Input).value.strip()
+        table_format = self.query_one("#table-type-input", Input).value.strip()
 
         if not url:
             self.call_from_thread(self.write_log, "[red]✗ URL is required[/]")
@@ -237,8 +278,19 @@ class FeishuDocxApp(App):
         self.call_from_thread(self.set_progress, 5, "连接中...")
         self.call_from_thread(self.write_log, f"[cyan]>[/] {url[:50]}...")
 
+        # 进度回调
+        def on_progress(stage: str, current: int, total: int):
+            if total > 0:
+                pct = int((current / total) * 80) + 10  # 10-90% 范围
+            else:
+                pct = 10
+            self.call_from_thread(self.set_progress, pct, stage)
+            if current == 0 or current == total:
+                self.call_from_thread(self.write_log, f"[dim]  {stage}[/]")
+
         try:
-            token = os.getenv("FEISHU_ACCESS_TOKEN")
+            # 优先使用 Token
+            token = self.query_one("#token-input", Input).value.strip() or os.getenv("FEISHU_ACCESS_TOKEN")
 
             if token:
                 exporter = FeishuExporter.from_token(token)
@@ -254,38 +306,28 @@ class FeishuDocxApp(App):
 
                 exporter = FeishuExporter(app_id=app_id, app_secret=app_secret)
 
-            # 解析 URL
-            self.call_from_thread(self.set_progress, 10, "解析 URL...")
-            self.call_from_thread(self.write_log, "[dim]  解析 URL...[/]")
-            doc_info = exporter.parse_url(url)
-            
-            # 获取 Token
-            self.call_from_thread(self.set_progress, 20, "获取凭证...")
-            self.call_from_thread(self.write_log, f"[dim]  文档类型: {doc_info.doc_type}[/]")
-            access_token = exporter.get_access_token()
-            
-            # 获取标题
-            self.call_from_thread(self.set_progress, 30, "获取文档信息...")
-            self.call_from_thread(self.write_log, "[dim]  获取文档标题...[/]")
-            
-            # 解析文档
-            self.call_from_thread(self.set_progress, 40, "获取文档结构...")
-            self.call_from_thread(self.write_log, "[dim]  获取文档结构...[/]")
-            
-            self.call_from_thread(self.set_progress, 60, "解析 Block...")
-            self.call_from_thread(self.write_log, "[dim]  解析 Block...[/]")
-            
-            self.call_from_thread(self.set_progress, 80, "渲染 Markdown...")
-            self.call_from_thread(self.write_log, "[dim]  渲染 Markdown...[/]")
-            
-            output_path = exporter.export(url=url, output_dir=output_dir, table_format="md")
+            output_path = exporter.export(
+                url=url,
+                output_dir=output_dir,
+                table_format=table_format,
+                silent=True,
+                progress_callback=on_progress,
+            )
 
             self.call_from_thread(self.set_progress, 100, "Done!")
             self.call_from_thread(self.write_log, f"[green]✓ {output_path}[/]")
 
         except Exception as e:
             self.call_from_thread(self.set_progress, 0, "Error")
-            self.call_from_thread(self.write_log, f"[red]✗ {e}[/]")
+            # 详细错误信息
+            import traceback
+            error_msg = str(e)
+            self.call_from_thread(self.write_log, f"[red]✗ {error_msg}[/]")
+            # 如果有详细堆栈，显示最后几行
+            tb = traceback.format_exc()
+            for line in tb.strip().split('\n')[-3:]:
+                if line.strip():
+                    self.call_from_thread(self.write_log, f"[dim]{line}[/]")
         finally:
             self.exporting = False
 

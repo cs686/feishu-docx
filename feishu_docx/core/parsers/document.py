@@ -93,7 +93,7 @@ class DocumentParser:
 
         total_blocks = len(raw_data_list)
         pm.log(f"  [dim]发现 {total_blocks} 个 Block[/dim]")
-        pm.report("发现 Block", total_blocks, total_blocks)
+        pm.report(f"发现  {total_blocks} 个 Block", total_blocks, total_blocks)
 
         if total_blocks == 0:
             return

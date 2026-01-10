@@ -113,6 +113,6 @@ class BitableParser:
                 advance()  # noqa
 
         pm.log(f"  [dim]解析完成 ({len(sections)} 个数据表)[/dim]")
-        pm.report("解析完成", len(sections), total_tables)
+        pm.report("解析完成 ({len(sections)} 个数据表)", len(sections), total_tables)
 
         return "\n\n---\n\n".join(sections)
