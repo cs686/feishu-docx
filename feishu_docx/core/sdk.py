@@ -18,7 +18,6 @@ import tempfile
 from datetime import datetime
 from pathlib import Path
 from typing import Any, List, Optional
-from rich.console import Console
 
 import lark_oapi as lark
 from lark_oapi.api.bitable.v1 import (
@@ -42,8 +41,10 @@ from lark_oapi.api.drive.v1 import DownloadMediaRequest, DownloadMediaResponse
 from lark_oapi.api.sheets.v3 import QuerySpreadsheetSheetRequest, QuerySpreadsheetSheetResponse, Sheet
 from lark_oapi.api.wiki.v2 import GetNodeSpaceRequest, GetNodeSpaceResponse, Node
 from lark_oapi.core import BaseResponse
+from rich.console import Console
 
 from feishu_docx.schema.models import TableMode
+from feishu_docx.utils.render_table import convert_to_html, convert_to_markdown
 
 console = Console()
 
@@ -279,7 +280,7 @@ class FeishuSDK:
 
         sheet = response.data.spreadsheet
         return {
-            "spreadsheet_token": sheet.spreadsheet_token,
+            "spreadsheet_token": sheet.token,
             "title": sheet.title or spreadsheet_token,
         }
 
@@ -338,11 +339,11 @@ class FeishuSDK:
             return None
 
     def get_sheet(
-        self,
-        sheet_token: str,
-        sheet_id: str,
-        user_access_token: str,
-        table_mode: TableMode,
+            self,
+            sheet_token: str,
+            sheet_id: str,
+            user_access_token: str,
+            table_mode: TableMode,
     ) -> Optional[str]:
         """
         获取电子表格数据并转换为 Markdown/HTML
@@ -379,9 +380,9 @@ class FeishuSDK:
                 return ""
 
             if table_mode == TableMode.MARKDOWN:
-                return self._convert_to_markdown(values)
+                return convert_to_markdown(values)
             else:
-                return self._convert_to_html(values)
+                return convert_to_html(values)
 
         except Exception as e:
             console.print(f"[red]解析工作表数据失败: {e}[/red]")
@@ -439,12 +440,12 @@ class FeishuSDK:
         return response.data.items
 
     def get_bitable(
-        self,
-        app_token: str,
-        table_id: str,
-        user_access_token: str,
-        table_mode: TableMode,
-        view_id: Optional[str] = None,
+            self,
+            app_token: str,
+            table_id: str,
+            user_access_token: str,
+            table_mode: TableMode,
+            view_id: Optional[str] = None,
     ) -> Optional[str]:
         """
         获取多维表格数据并转换为 Markdown/HTML
@@ -482,20 +483,20 @@ class FeishuSDK:
 
             # 4. 转换格式
             if table_mode == TableMode.MARKDOWN:
-                return self._convert_to_markdown(matrix)
+                return convert_to_markdown(matrix)
             else:
-                return self._convert_to_html(matrix)
+                return convert_to_html(matrix)
 
         except Exception as e:
             console.print(f"[red]处理多维表格失败: {e}[/red]")
             return None
 
     def _get_bitable_headers(
-        self,
-        app_token: str,
-        table_id: str,
-        view_id: Optional[str],
-        user_access_token: str,
+            self,
+            app_token: str,
+            table_id: str,
+            view_id: Optional[str],
+            user_access_token: str,
     ) -> Optional[List[AppTableFieldForList]]:
         """获取多维表格字段列表"""
         request = (
@@ -520,11 +521,11 @@ class FeishuSDK:
         return response.data.items
 
     def _get_bitable_records(
-        self,
-        app_token: str,
-        table_id: str,
-        view_id: Optional[str],
-        user_access_token: str,
+            self,
+            app_token: str,
+            table_id: str,
+            view_id: Optional[str],
+            user_access_token: str,
     ) -> List[Any]:
         """获取多维表格所有记录"""
         all_records = []
@@ -612,54 +613,6 @@ class FeishuSDK:
             return json.dumps(value, ensure_ascii=False)
 
         return str(value)
-
-    # ==========================================================================
-    # 格式转换
-    # ==========================================================================
-    @staticmethod
-    def _convert_to_markdown(values: list) -> str:
-        """将二维数组转换为 Markdown 表格"""
-        if not values:
-            return ""
-
-        # 补齐列数
-        max_cols = max(len(row) for row in values)
-        normalized_values = []
-        for row in values:
-            str_row = [
-                str(cell).replace("\n", "<br>").replace("|", "\\|") if cell is not None else ""
-                for cell in row
-            ]
-            str_row.extend([""] * (max_cols - len(str_row)))
-            normalized_values.append(str_row)
-
-        md_lines = []
-        for i, row in enumerate(normalized_values):
-            line = "| " + " | ".join(row) + " |"
-            md_lines.append(line)
-            if i == 0:
-                separator = "| " + " | ".join(["---"] * max_cols) + " |"
-                md_lines.append(separator)
-
-        return "\n".join(md_lines)
-
-    @staticmethod
-    def _convert_to_html(values: list) -> str:
-        """将二维数组转换为 HTML 表格"""
-        if not values:
-            return ""
-
-        html = ["<table>"]
-        for row in values:
-            html.append("  <tr>")
-            for cell in row:
-                cell_content = str(cell) if cell is not None else ""
-                cell_content = cell_content.replace("\n", "<br>")
-                html.append(f"    <td>{cell_content}</td>")
-            html.append("  </tr>")
-        html.append("</table>")
-
-        return "\n".join(html)
 
     @staticmethod
     def _log_error(api_name: str, response):

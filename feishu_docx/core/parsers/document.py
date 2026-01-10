@@ -14,7 +14,7 @@
 """
 
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 from urllib.parse import unquote
 
 from rich.console import Console
@@ -22,6 +22,8 @@ from rich.console import Console
 from feishu_docx.core.sdk import FeishuSDK
 from feishu_docx.schema.code_style import CODE_STYLE_MAP
 from feishu_docx.schema.models import BlockType, FeishuBlock, TableMode
+from feishu_docx.utils.progress import ProgressManager
+from feishu_docx.utils.render_table import render_table_html, render_table_markdown
 
 console = Console()
 
@@ -41,12 +43,14 @@ class DocumentParser:
     """
 
     def __init__(
-        self,
-        document_id: str,
-        user_access_token: str,
-        table_mode: str = "md",
-        sdk: Optional[FeishuSDK] = None,
-        assets_dir: Optional[Path] = None,
+            self,
+            document_id: str,
+            user_access_token: str,
+            table_mode: str = "md",
+            sdk: Optional[FeishuSDK] = None,
+            assets_dir: Optional[Path] = None,
+            silent: bool = False,
+            progress_callback=None,
     ):
         """
         初始化文档解析器
@@ -57,13 +61,17 @@ class DocumentParser:
             table_mode: 表格输出格式 ("html" 或 "md")
             sdk: 可选的 SDK 实例（用于共享临时目录）
             assets_dir: 资源文件保存目录（图片等）
+            silent: 是否静默模式（不输出 Rich 进度）
+            progress_callback: 进度回调函数 (stage: str, current: int, total: int)
         """
         self.sdk = sdk or FeishuSDK()
         self.table_mode = TableMode(table_mode)
         self.user_access_token = user_access_token
         self.document_id = document_id
         self.assets_dir = assets_dir
-        self.show_progress = True  # 控制是否显示进度
+
+        # 进度管理器
+        self.pm = ProgressManager(silent=silent, callback=progress_callback)
 
         # Block 缓存
         self.blocks_map: Dict[str, FeishuBlock] = {}
@@ -74,61 +82,40 @@ class DocumentParser:
 
     def _preprocess(self):
         """预处理：获取 Block 列表并构建树结构"""
-        from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
+        pm = self.pm
 
         # 阶段1: 获取 Block 列表
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            transient=True,
-        ) as progress:
-            progress.add_task(description="[cyan]获取文档结构...[/cyan]", total=None)
+        with pm.spinner("获取文档结构..."):
             raw_data_list = self.sdk.get_document_block_list(
                 document_id=self.document_id,
                 user_access_token=self.user_access_token,
             )
 
         total_blocks = len(raw_data_list)
-        console.print(f"  [dim]发现 {total_blocks} 个 Block[/dim]")
+        pm.log(f"  [dim]发现 {total_blocks} 个 Block[/dim]")
+        pm.report("发现 Block", total_blocks, total_blocks)
 
         if total_blocks == 0:
             return
 
         # 阶段2: 反序列化 Block
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            BarColumn(bar_width=20),
-            TaskProgressColumn(),
-            transient=True,
-        ) as progress:
-            task = progress.add_task("[cyan]解析 Block...[/cyan]", total=total_blocks)
-            
+        with pm.bar("解析 Block...", total_blocks) as advance:
             for item in raw_data_list:
                 try:
                     block = FeishuBlock(**item)
                     self.blocks_map[block.block_id] = block
-                except Exception as e:
-                    console.print(f"  [yellow]跳过: {item.get('block_id', '?')[:8]}... - {e}[/yellow]")
-                finally:
-                    progress.advance(task)
+                except Exception: # noqa
+                    pm.log(f"  [yellow]跳过: {item.get('block_id', '?')[:8]}...[/yellow]")
+                advance()  # noqa
 
         # 阶段3: 构建树结构
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            transient=True,
-        ) as progress:
-            progress.add_task("[cyan]构建树结构...[/cyan]", total=None)
-            
+        with pm.spinner("构建树结构..."):
             for block in self.blocks_map.values():
                 if block.children:
-                    ordered_children = []
-                    for child_id in block.children:
-                        child_block = self.blocks_map.get(child_id)
-                        if child_block:
-                            ordered_children.append(child_block)
-                    block.sub_blocks = ordered_children
+                    block.sub_blocks = [
+                        self.blocks_map[cid] for cid in block.children
+                        if cid in self.blocks_map
+                    ]
 
         # 确定根节点
         self.root_block = next(
@@ -139,8 +126,8 @@ class DocumentParser:
             first_id = raw_data_list[0].get("block_id")
             self.root_block = self.blocks_map.get(first_id)
 
-        console.print(f"  [dim]预处理完成[/dim]")
-
+        pm.log("  [dim]预处理完成[/dim]")
+        pm.report("预处理完成", total_blocks, total_blocks)
 
     def parse(self) -> str:
         """
@@ -149,41 +136,36 @@ class DocumentParser:
         Returns:
             Markdown 格式的文档内容
         """
-        from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
+        pm = self.pm
 
         if not self.root_block:
-            console.print("[yellow]> 未找到根 Block，无法解析文档[/yellow]")
+            pm.log("[yellow]> 未找到根 Block，无法解析文档[/yellow]")
             return ""
 
         total_blocks = len(self.blocks_map)
 
         # 阶段4: 渲染 Markdown
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            BarColumn(bar_width=20),
-            TaskProgressColumn(),
-            transient=True,
-        ) as progress:
-            self._progress = progress
-            self._progress_task = progress.add_task("[cyan]渲染 Markdown...[/cyan]", total=total_blocks)
-            
+        with pm.bar("渲染 Markdown...", total_blocks) as advance:
             title = self._render_text_payload(self.root_block.page)
-            body = self._recursive_render(self.root_block)
-            
-            self._progress = None
-            self._progress_task = None
+            body = self._recursive_render(self.root_block, advance=advance)
 
-        console.print(f"  [dim]渲染完成 ({total_blocks} blocks)[/dim]")
+        pm.log(f"  [dim]渲染完成 ({total_blocks} blocks)[/dim]")
+        pm.report("渲染完成", total_blocks, total_blocks)
+
         return f"# {title}\n{body}"
 
-    def _recursive_render(self, block: FeishuBlock, depth: int = 0) -> str:
+    def _recursive_render(
+            self,
+            block: FeishuBlock,
+            depth: int = 0,
+            advance: Optional[Callable[[], None]] = None,
+    ) -> str:
         """递归渲染 Block 树"""
         content = ""
 
         # 更新进度
-        if hasattr(self, '_progress') and self._progress:
-            self._progress.advance(self._progress_task)
+        if advance:
+            advance()
 
         # 1. 渲染自身内容
         self_content = self._render_block_self(block)
@@ -195,7 +177,7 @@ class DocumentParser:
         # 3. 递归渲染子节点
         children_content = []
         for child in block.sub_blocks:
-            child_text = self._recursive_render(child, depth + 1)
+            child_text = self._recursive_render(child, depth + 1, advance)
             if child_text:
                 children_content.append(child_text)
 
@@ -425,44 +407,6 @@ class DocumentParser:
 
         # 渲染输出
         if self.table_mode == TableMode.HTML:
-            return self._render_table_html(grid_data, row_count, col_count)
+            return render_table_html(grid_data, row_count, col_count)
         else:
-            return self._render_table_markdown(grid_data, row_count, col_count)
-
-    @staticmethod
-    def _render_table_html(grid_data, row_count: int, col_count: int) -> str:
-        """渲染 HTML 表格"""
-        html = ["<table>"]
-        for r in range(row_count):
-            html.append("  <tr>")
-            for c in range(col_count):
-                data = grid_data[r][c]
-                if data:
-                    content, r_span, c_span = data
-                    attrs = ""
-                    if r_span > 1:
-                        attrs += f' rowspan="{r_span}"'
-                    if c_span > 1:
-                        attrs += f' colspan="{c_span}"'
-                    html.append(f"    <td{attrs}>{content}</td>")
-            html.append("  </tr>")
-        html.append("</table>")
-        return "\n".join(html)
-
-    @staticmethod
-    def _render_table_markdown(grid_data, row_count: int, col_count: int) -> str:
-        """渲染 Markdown 表格"""
-        md_lines = []
-        for r in range(row_count):
-            row_strs = []
-            for c in range(col_count):
-                if grid_data[r][c]:
-                    content = grid_data[r][c][0]
-                    content = content.replace("|", "\\|").replace("\n", "<br>")
-                    row_strs.append(content)
-                else:
-                    row_strs.append(" ")
-            md_lines.append("| " + " | ".join(row_strs) + " |")
-            if r == 0:
-                md_lines.append("| " + " | ".join(["---"] * col_count) + " |")
-        return "\n".join(md_lines)
+            return render_table_markdown(grid_data, row_count, col_count)

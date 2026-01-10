@@ -113,7 +113,7 @@ Screen {
 
 /* ===== 进度区域 ===== */
 #progress-section {
-    height: 3;
+    height: auto;
     margin-top: 1;
     border-top: solid #30363d;
     padding-top: 1;
@@ -125,14 +125,21 @@ Screen {
 }
 
 #progress-bar {
+    width: 100%;
     height: 1;
+    margin-top: 1;
 }
 
-ProgressBar > .bar--bar {
+#progress-bar Bar {
+    width: 1fr;
+}
+
+#progress-bar .bar--bar {
     color: #58a6ff;
+    background: #21262d;
 }
 
-ProgressBar > .bar--complete {
+#progress-bar .bar--complete {
     color: #3fb950;
 }
 

@@ -15,12 +15,9 @@
 
 from typing import Optional
 
-from rich.console import Console
-
 from feishu_docx.core.sdk import FeishuSDK
 from feishu_docx.schema.models import TableMode
-
-console = Console()
+from feishu_docx.utils.progress import ProgressManager
 
 
 class SheetParser:
@@ -36,6 +33,8 @@ class SheetParser:
             user_access_token: str,
             table_mode: str = "md",
             sdk: Optional[FeishuSDK] = None,
+            silent: bool = False,
+            progress_callback=None,
     ):
         """
         初始化电子表格解析器
@@ -45,12 +44,17 @@ class SheetParser:
             user_access_token: 用户访问凭证
             table_mode: 表格输出格式 ("html" 或 "md")
             sdk: 可选的 SDK 实例
+            silent: 是否静默模式
+            progress_callback: 进度回调函数
         """
         self.sdk = sdk or FeishuSDK()
         self.table_mode = TableMode(table_mode)
         self.user_access_token = user_access_token
         self.spreadsheet_token = spreadsheet_token
         self.block_info = {}
+
+        # 进度管理器
+        self.pm = ProgressManager(silent=silent, callback=progress_callback)
 
     def parse(self) -> str:
         """
@@ -59,42 +63,32 @@ class SheetParser:
         Returns:
             Markdown 格式的内容，每个工作表作为一个章节
         """
-        from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
+        pm = self.pm
 
         # 获取工作表列表
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            transient=True,
-        ) as progress:
-            progress.add_task("[cyan]获取工作表列表...[/cyan]", total=None)
+        with pm.spinner("获取工作表列表..."):
             sheets = self.sdk.get_sheet_list(
                 spreadsheet_token=self.spreadsheet_token,
                 user_access_token=self.user_access_token,
             )
 
         total_sheets = len(sheets)
-        console.print(f"  [dim]发现 {total_sheets} 个工作表[/dim]")
+        pm.log(f"  [dim]发现 {total_sheets} 个工作表[/dim]")
+        pm.report("发现工作表", total_sheets, total_sheets)
 
         if total_sheets == 0:
             return ""
 
         sections = []
-        
+
         # 解析每个工作表
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            BarColumn(bar_width=20),
-            TaskProgressColumn(),
-            transient=True,
-        ) as progress:
-            task = progress.add_task("[cyan]解析工作表...[/cyan]", total=total_sheets)
-            
+        with pm.bar("解析工作表...", total_sheets) as advance:
             for sheet in sheets:
                 sheet_id = sheet.sheet_id
                 sheet_title = sheet.title
                 resource_type = sheet.resource_type
+
+                sheet_data = None
 
                 if resource_type == "sheet":
                     sheet_data = self.sdk.get_sheet(
@@ -104,47 +98,50 @@ class SheetParser:
                         table_mode=self.table_mode,
                     )
                 elif resource_type == "bitable":
-                    # 获取 block info
-                    if not self.block_info:
-                        blocks = self.sdk.get_sheet_metadata(
-                            spreadsheet_token=self.spreadsheet_token,
-                            user_access_token=self.user_access_token,
-                        )
-                        if blocks:
-                            for block in blocks:
-                                block_info = block.get("blockInfo")
-                                if block_info:
-                                    block_token = block_info.get("blockToken", "")
-                                    self.block_info[block.get("sheetId")] = block_token
-
-                    token = self.block_info.get(sheet_id, "")
-                    if token:
-                        token_parts = token.split("_")
-                        if len(token_parts) >= 2:
-                            sheet_data = self.sdk.get_bitable(
-                                app_token=token_parts[0],
-                                table_id=token_parts[1],
-                                user_access_token=self.user_access_token,
-                                table_mode=self.table_mode,
-                            )
-                        else:
-                            console.print(f"  [yellow]跳过无效 token: {sheet_title}[/yellow]")
-                            progress.advance(task)
-                            continue
-                    else:
-                        console.print(f"  [yellow]跳过: {sheet_title}[/yellow]")
-                        progress.advance(task)
-                        continue
+                    sheet_data = self._parse_bitable_sheet(sheet_id, sheet_title)
                 else:
-                    console.print(f"  [yellow]跳过不支持类型: {resource_type}[/yellow]")
-                    progress.advance(task)
-                    continue
+                    pm.log(f"  [yellow]跳过不支持类型: {resource_type}[/yellow]")
 
                 if sheet_data:
                     sections.append(f"# {sheet_title}\n\n{sheet_data}")
-                
-                progress.advance(task)
 
-        console.print(f"  [dim]解析完成 ({len(sections)} 个工作表)[/dim]")
+                advance()  # noqa
+
+        pm.log(f"  [dim]解析完成 ({len(sections)} 个工作表)[/dim]")
+        pm.report("解析完成", len(sections), total_sheets)
+
         return "\n\n---\n\n".join(sections)
 
+    def _parse_bitable_sheet(self, sheet_id: str, sheet_title: str) -> Optional[str]:
+        """解析嵌入的 Bitable 工作表"""
+        pm = self.pm
+
+        # 获取 block info
+        if not self.block_info:
+            blocks = self.sdk.get_sheet_metadata(
+                spreadsheet_token=self.spreadsheet_token,
+                user_access_token=self.user_access_token,
+            )
+            if blocks:
+                for block in blocks:
+                    block_info = block.get("blockInfo")
+                    if block_info:
+                        block_token = block_info.get("blockToken", "")
+                        self.block_info[block.get("sheetId")] = block_token
+
+        token = self.block_info.get(sheet_id, "")
+        if not token:
+            pm.log(f"  [yellow]跳过: {sheet_title}[/yellow]")
+            return None
+
+        token_parts = token.split("_")
+        if len(token_parts) < 2:
+            pm.log(f"  [yellow]跳过无效 token: {sheet_title}[/yellow]")
+            return None
+
+        return self.sdk.get_bitable(
+            app_token=token_parts[0],
+            table_id=token_parts[1],
+            user_access_token=self.user_access_token,
+            table_mode=self.table_mode,
+        )

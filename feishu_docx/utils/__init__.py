@@ -14,5 +14,7 @@
 """
 
 from feishu_docx.utils.config import get_config_dir, get_cache_dir
+from feishu_docx.utils.progress import ProgressManager
 
-__all__ = ["get_config_dir", "get_cache_dir"]
+__all__ = ["get_config_dir", "get_cache_dir", "ProgressManager"]
+

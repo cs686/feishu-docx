@@ -234,8 +234,8 @@ class FeishuDocxApp(App):
             self.exporting = False
             return
 
-        self.call_from_thread(self.set_progress, 10, "Connecting...")
-        self.call_from_thread(self.write_log, f"[cyan]>[/] {url[:60]}...")
+        self.call_from_thread(self.set_progress, 5, "连接中...")
+        self.call_from_thread(self.write_log, f"[cyan]>[/] {url[:50]}...")
 
         try:
             token = os.getenv("FEISHU_ACCESS_TOKEN")
@@ -254,8 +254,30 @@ class FeishuDocxApp(App):
 
                 exporter = FeishuExporter(app_id=app_id, app_secret=app_secret)
 
-            self.call_from_thread(self.set_progress, 40, "Parsing document...")
-
+            # 解析 URL
+            self.call_from_thread(self.set_progress, 10, "解析 URL...")
+            self.call_from_thread(self.write_log, "[dim]  解析 URL...[/]")
+            doc_info = exporter.parse_url(url)
+            
+            # 获取 Token
+            self.call_from_thread(self.set_progress, 20, "获取凭证...")
+            self.call_from_thread(self.write_log, f"[dim]  文档类型: {doc_info.doc_type}[/]")
+            access_token = exporter.get_access_token()
+            
+            # 获取标题
+            self.call_from_thread(self.set_progress, 30, "获取文档信息...")
+            self.call_from_thread(self.write_log, "[dim]  获取文档标题...[/]")
+            
+            # 解析文档
+            self.call_from_thread(self.set_progress, 40, "获取文档结构...")
+            self.call_from_thread(self.write_log, "[dim]  获取文档结构...[/]")
+            
+            self.call_from_thread(self.set_progress, 60, "解析 Block...")
+            self.call_from_thread(self.write_log, "[dim]  解析 Block...[/]")
+            
+            self.call_from_thread(self.set_progress, 80, "渲染 Markdown...")
+            self.call_from_thread(self.write_log, "[dim]  渲染 Markdown...[/]")
+            
             output_path = exporter.export(url=url, output_dir=output_dir, table_format="md")
 
             self.call_from_thread(self.set_progress, 100, "Done!")

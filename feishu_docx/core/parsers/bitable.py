@@ -15,12 +15,9 @@
 
 from typing import Optional
 
-from rich.console import Console
-
 from feishu_docx.core.sdk import FeishuSDK
 from feishu_docx.schema.models import TableMode
-
-console = Console()
+from feishu_docx.utils.progress import ProgressManager
 
 
 class BitableParser:
@@ -37,6 +34,8 @@ class BitableParser:
             app_token: Optional[str] = None,
             table_mode: str = "md",
             sdk: Optional[FeishuSDK] = None,
+            silent: bool = False,
+            progress_callback=None,
     ):
         """
         初始化多维表格解析器
@@ -47,12 +46,17 @@ class BitableParser:
             app_token: 多维表格 app_token（二选一）
             table_mode: 表格输出格式 ("html" 或 "md")
             sdk: 可选的 SDK 实例
+            silent: 是否静默模式
+            progress_callback: 进度回调函数
         """
         self.sdk = sdk or FeishuSDK()
         self.table_mode = TableMode(table_mode)
         self.user_access_token = user_access_token
         self.node_token = node_token
         self.app_token = app_token
+
+        # 进度管理器
+        self.pm = ProgressManager(silent=silent, callback=progress_callback)
 
     def _get_app_token(self):
         """获取 app_token"""
@@ -73,24 +77,20 @@ class BitableParser:
         Returns:
             Markdown 格式的内容，每个数据表作为一个章节
         """
-        from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
+        pm = self.pm
 
         self._get_app_token()
 
         # 获取表格列表
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            transient=True,
-        ) as progress:
-            progress.add_task("[cyan]获取数据表列表...[/cyan]", total=None)
+        with pm.spinner("获取数据表列表..."):
             bitables = self.sdk.get_bitable_table_list(
                 app_token=self.app_token,
                 user_access_token=self.user_access_token,
             )
 
         total_tables = len(bitables)
-        console.print(f"  [dim]发现 {total_tables} 个数据表[/dim]")
+        pm.log(f"  [dim]发现 {total_tables} 个数据表[/dim]")
+        pm.report("发现数据表", total_tables, total_tables)
 
         if total_tables == 0:
             return ""
@@ -98,15 +98,7 @@ class BitableParser:
         sections = []
 
         # 解析每个数据表
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            BarColumn(bar_width=20),
-            TaskProgressColumn(),
-            transient=True,
-        ) as progress:
-            task = progress.add_task("[cyan]解析数据表...[/cyan]", total=total_tables)
-
+        with pm.bar("解析数据表...", total_tables) as advance:
             for bitable in bitables:
                 table_data = self.sdk.get_bitable(
                     app_token=self.app_token,
@@ -118,7 +110,9 @@ class BitableParser:
                 if table_data:
                     sections.append(f"# {bitable.name}\n\n{table_data}")
 
-                progress.advance(task)
+                advance()  # noqa
 
-        console.print(f"  [dim]解析完成 ({len(sections)} 个数据表)[/dim]")
+        pm.log(f"  [dim]解析完成 ({len(sections)} 个数据表)[/dim]")
+        pm.report("解析完成", len(sections), total_tables)
+
         return "\n\n---\n\n".join(sections)
