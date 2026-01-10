@@ -14,278 +14,258 @@
 """
 
 import os
-from pathlib import Path
+from datetime import datetime
 
-from textual import on
+from textual import on, work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.containers import Container, Horizontal, Vertical
-from textual.screen import Screen
-from textual.widgets import (
-    Button,
-    Footer,
-    Header,
-    Input,
-    Label,
-    Log,
-    RadioButton,
-    RadioSet,
-    Static,
-)
+from textual.containers import Horizontal, Vertical
+from textual.widgets import Footer, Input, Static, RichLog, ProgressBar
 
 from feishu_docx.core.exporter import FeishuExporter
+from feishu_docx.utils.config import AppConfig
 
-
-# ==============================================================================
-# 主屏幕
-# ==============================================================================
-class MainScreen(Screen):
-    """主屏幕"""
-
-    CSS = """
-    #main-container {
-        padding: 1 2;
-        height: 100%;
-    }
-    
-    #title-box {
-        height: 5;
-        content-align: center middle;
-        background: $primary-background;
-        border: round $primary;
-        margin-bottom: 1;
-    }
-    
-    #title-text {
-        text-style: bold;
-        color: $text;
-    }
-    
-    .section {
-        margin-bottom: 1;
-        padding: 1;
-        border: round $surface;
-    }
-    
-    .section-title {
-        text-style: bold;
-        margin-bottom: 1;
-    }
-    
-    .input-row {
-        height: auto;
-        margin-bottom: 1;
-    }
-    
-    .input-label {
-        width: 12;
-        padding-right: 1;
-    }
-    
-    .input-field {
-        width: 1fr;
-    }
-    
-    #url-input {
-        width: 100%;
-    }
-    
-    #output-dir-input {
-        width: 100%;
-    }
-    
-    #token-input {
-        width: 100%;
-    }
-    
-    #app-id-input {
-        width: 50%;
-    }
-    
-    #app-secret-input {
-        width: 50%;
-    }
-    
-    #log-container {
-        height: 1fr;
-        border: round $surface;
-        margin-top: 1;
-    }
-    
-    #export-log {
-        height: 100%;
-        padding: 1;
-    }
-    
-    #button-row {
-        height: auto;
-        margin-top: 1;
-        align: center middle;
-    }
-    
-    #export-btn {
-        width: 20;
-        margin-right: 2;
-    }
-    
-    #clear-btn {
-        width: 16;
-    }
-    
-    RadioSet {
-        height: auto;
-        width: auto;
-    }
-    """
-
-    def compose(self) -> ComposeResult:
-        yield Header(show_clock=True)
-
-        with Container(id="main-container"):
-            # 标题
-            with Container(id="title-box"):
-                yield Static("🚀 飞书云文档导出 Markdown", id="title-text")
-
-            # 文档 URL
-            with Vertical(classes="section"):
-                yield Label("📄 文档 URL", classes="section-title")
-                yield Input(
-                    placeholder="粘贴飞书文档 URL，如 https://xxx.feishu.cn/docx/xxx",
-                    id="url-input",
-                )
-
-            # 输出设置
-            with Vertical(classes="section"):
-                yield Label("📁 输出设置", classes="section-title")
-                with Horizontal(classes="input-row"):
-                    yield Label("输出目录:", classes="input-label")
-                    yield Input(
-                        value=str(Path.cwd()),
-                        id="output-dir-input",
-                        classes="input-field",
-                    )
-                with Horizontal(classes="input-row"):
-                    yield Label("表格格式:", classes="input-label")
-                    with RadioSet(id="table-format"):
-                        yield RadioButton("HTML", value=True, id="format-html")
-                        yield RadioButton("Markdown", id="format-md")
-
-            # 认证设置
-            with Vertical(classes="section"):
-                yield Label("🔐 认证设置", classes="section-title")
-                with Horizontal(classes="input-row"):
-                    yield Label("Token:", classes="input-label")
-                    yield Input(
-                        placeholder="user_access_token（可选，优先使用）",
-                        password=True,
-                        id="token-input",
-                        classes="input-field",
-                    )
-                with Horizontal(classes="input-row"):
-                    yield Label("App ID:", classes="input-label")
-                    yield Input(
-                        placeholder="飞书应用 App ID",
-                        value=os.getenv("FEISHU_APP_ID", ""),
-                        id="app-id-input",
-                    )
-                    yield Label("App Secret:", classes="input-label")
-                    yield Input(
-                        placeholder="飞书应用 App Secret",
-                        password=True,
-                        value=os.getenv("FEISHU_APP_SECRET", ""),
-                        id="app-secret-input",
-                    )
-
-            # 日志区域
-            with Container(id="log-container"):
-                yield Log(id="export-log", highlight=True, auto_scroll=True)
-
-            # 按钮
-            with Horizontal(id="button-row"):
-                yield Button("📥 开始导出", variant="primary", id="export-btn")
-                yield Button("🗑️ 清空日志", variant="default", id="clear-btn")
-
-        yield Footer()
-
-    # def log(self, message: str):
-    #     """写入日志"""
-    #     log_widget = self.query_one("#export-log", Log)
-    #     log_widget.write_line(message)
-
-    @on(Button.Pressed, "#export-btn")
-    def handle_export(self):
-        """处理导出按钮点击"""
-        url = self.query_one("#url-input", Input).value.strip()
-        output_dir = self.query_one("#output-dir-input", Input).value.strip()
-        token = self.query_one("#token-input", Input).value.strip()
-        app_id = self.query_one("#app-id-input", Input).value.strip()
-        app_secret = self.query_one("#app-secret-input", Input).value.strip()
-
-        # 获取表格格式
-        table_format = "html"
-        if self.query_one("#format-md", RadioButton).value:
-            table_format = "md"
-
-        if not url:
-            self.log("[red]❌ 请输入文档 URL[/red]")
-            return
-
-        self.log(f"[blue]📄 开始导出: {url}[/blue]")
-
-        try:
-            # 创建导出器
-            if token:
-                self.log("[dim]使用 Token 认证[/dim]")
-                exporter = FeishuExporter.from_token(token)
-            elif app_id and app_secret:
-                self.log("[dim]使用 OAuth 授权[/dim]")
-                exporter = FeishuExporter(app_id=app_id, app_secret=app_secret)
-            else:
-                self.log("[red]❌ 请提供 Token 或 OAuth 凭证[/red]")
-                return
-
-            # 执行导出
-            output_path = exporter.export(
-                url=url,
-                output_dir=output_dir,
-                table_format=table_format,  # type: ignore
-            )
-
-            self.log(f"[green]✅ 导出成功: {output_path}[/green]")
-
-        except Exception as e:
-            self.log(f"[red]❌ 导出失败: {e}[/red]")
-
-    @on(Button.Pressed, "#clear-btn")
-    def handle_clear(self):
-        """清空日志"""
-        log_widget = self.query_one("#export-log", Log)
-        log_widget.clear()
+from .constants import LOGO, DESCRIPTION, VERSION, AUTHOR, REPO
+from .styles import APP_CSS
 
 
 # ==============================================================================
 # 主应用
 # ==============================================================================
 class FeishuDocxApp(App):
-    """飞书文档导出器 TUI 应用"""
+    """飞书文档导出器 TUI"""
 
-    TITLE = "Feishu Docx"
-    SUB_TITLE = "飞书云文档导出 Markdown"
-
-    CSS = """
-    Screen {
-        background: $surface;
-    }
-    """
+    CSS = APP_CSS
 
     BINDINGS = [
-        Binding("q", "quit", "退出"),
-        Binding("ctrl+c", "quit", "退出"),
+        Binding("q", "quit", "Quit"),
+        Binding("escape", "quit", "Quit", show=False),
+        Binding("enter", "export", "Export"),
+        Binding("ctrl+l", "clear", "Clear"),
+        Binding("ctrl+s", "save", "Save"),
+        Binding("ctrl+z", "undo", "Undo", show=False),
     ]
 
+    def __init__(self):
+        super().__init__()
+        self.config = AppConfig.load()
+        self.exporting = False
+        self._input_history: dict[str, list[str]] = {}
+
+    def compose(self) -> ComposeResult:
+        # 认证状态
+        has_token = bool(os.getenv("FEISHU_ACCESS_TOKEN"))
+        has_creds = self.config.has_credentials() or (
+            os.getenv("FEISHU_APP_ID") and os.getenv("FEISHU_APP_SECRET")
+        )
+
+        if has_token:
+            auth_text, auth_class = "● Token 已配置", "status-ok"
+        elif has_creds:
+            auth_text, auth_class = "● OAuth 已配置", "status-ok"
+        else:
+            auth_text, auth_class = "○ 未配置凭证", "status-warn"
+
+        # ───────── 顶部 ─────────
+        with Vertical(id="header"):
+            yield Static(LOGO, id="logo")
+            yield Static(DESCRIPTION, id="desc-line")
+            yield Static(f"{VERSION} · by {AUTHOR} · {REPO}", id="info-line")
+
+        # ───────── 主内容 ─────────
+        with Horizontal(id="content"):
+            # 左侧：配置面板
+            with Vertical(id="left-panel"):
+                yield Static("─ Config ─", classes="panel-title")
+                yield Static("")
+
+                with Horizontal(classes="field-row"):
+                    yield Static("URL", classes="field-label")
+                    yield Static(">> ", classes="field-prompt")
+                    yield Input(placeholder="(输入飞书文档URL)", id="url-input", classes="field-input")
+
+                with Horizontal(classes="field-row"):
+                    yield Static("Output", classes="field-label")
+                    yield Static(">> ", classes="field-prompt")
+                    yield Input(value="./output", id="output-input", classes="field-input")
+
+                with Horizontal(classes="field-row"):
+                    yield Static("Format", classes="field-label")
+                    yield Static("   markdown", classes="field-value")
+
+                yield Static("")
+                yield Static("─ Auth ─", classes="panel-title")
+
+                with Horizontal(classes="field-row"):
+                    yield Static("Status", classes="field-label")
+                    yield Static("   ", classes="field-prompt")
+                    yield Static(auth_text, id="auth-status", classes=auth_class)
+
+                with Horizontal(classes="field-row"):
+                    yield Static("App ID", classes="field-label")
+                    yield Static(">> ", classes="field-prompt")
+                    yield Input(
+                        value=os.getenv("FEISHU_APP_ID", "") or self.config.app_id or "",
+                        id="app-id-input",
+                        classes="field-input",
+                        placeholder="(App ID)",
+                    )
+
+                with Horizontal(classes="field-row"):
+                    yield Static("Secret", classes="field-label")
+                    yield Static(">> ", classes="field-prompt")
+                    yield Input(
+                        value=os.getenv("FEISHU_APP_SECRET", "") or self.config.app_secret or "",
+                        id="app-secret-input",
+                        classes="field-input",
+                        password=True,
+                        placeholder="(App Secret)",
+                    )
+
+                # 进度区
+                with Vertical(id="progress-section"):
+                    yield Static("Ready", id="progress-text")
+                    yield ProgressBar(total=100, show_eta=False, id="progress-bar")
+
+            # 右侧：日志面板
+            with Vertical(id="right-panel"):
+                yield Static("─ Logs ─", classes="panel-title")
+                yield RichLog(id="log-view", auto_scroll=True, markup=True, highlight=True)
+
+        yield Footer()
+
+    # ==========================================================================
+    # 生命周期
+    # ==========================================================================
     def on_mount(self):
-        """挂载时推送主屏幕"""
-        self.push_screen(MainScreen())
+        """挂载时初始化"""
+        self.write_log("Welcome to feishu-docx!")
+        self.write_log("Input URL and press [bold cyan]Enter[/] to export")
+        
+        if self.config.has_credentials():
+            self.write_log("[dim]Credentials loaded from config[/dim]")
+
+    # ==========================================================================
+    # 辅助方法
+    # ==========================================================================
+    def write_log(self, msg: str):
+        """写日志"""
+        ts = datetime.now().strftime("%H:%M:%S")
+        self.query_one("#log-view", RichLog).write(f"[dim]{ts}[/] {msg}")
+
+    def set_progress(self, value: int, text: str):
+        """设置进度"""
+        self.query_one("#progress-bar", ProgressBar).update(progress=value)
+        self.query_one("#progress-text", Static).update(text)
+
+    # ==========================================================================
+    # Actions
+    # ==========================================================================
+    def action_clear(self):
+        """清空日志"""
+        self.query_one("#log-view", RichLog).clear()
+        self.write_log("Log cleared")
+
+    def action_save(self):
+        """保存配置"""
+        try:
+            self.config.app_id = self.query_one("#app-id-input", Input).value.strip()
+            self.config.app_secret = self.query_one("#app-secret-input", Input).value.strip()
+            self.config.save()
+            self.write_log("[green]✓ Config saved[/]")
+
+            status = self.query_one("#auth-status", Static)
+            status.update("● OAuth 已配置")
+            status.remove_class("status-warn")
+            status.add_class("status-ok")
+        except Exception as e:
+            self.write_log(f"[red]✗ Save failed: {e}[/]")
+
+    def action_undo(self):
+        """撤回上一次输入"""
+        focused = self.focused
+        if isinstance(focused, Input) and focused.id:
+            history = self._input_history.get(focused.id, [])
+            if len(history) > 1:
+                history.pop()
+                prev_value = history[-1] if history else ""
+                focused.value = prev_value
+                self.write_log("[dim]Undo[/]")
+
+    def action_export(self):
+        """执行导出"""
+        if self.exporting:
+            return
+        self.run_export()
+
+    # ==========================================================================
+    # 事件处理
+    # ==========================================================================
+    @on(Input.Changed)
+    def on_input_changed(self, event: Input.Changed):
+        """记录输入变化，用于撤回"""
+        input_id = event.input.id
+        if input_id:
+            if input_id not in self._input_history:
+                self._input_history[input_id] = []
+            history = self._input_history[input_id]
+            if len(history) >= 10:
+                history.pop(0)
+            history.append(event.value)
+
+    @on(Input.Submitted, "#url-input")
+    def on_url_enter(self, event: Input.Submitted):
+        """URL 输入回车触发导出"""
+        self.action_export()
+
+    # ==========================================================================
+    # 后台任务
+    # ==========================================================================
+    @work(thread=True)
+    def run_export(self):
+        """后台执行导出"""
+        self.exporting = True
+
+        url = self.query_one("#url-input", Input).value.strip()
+        output_dir = self.query_one("#output-input", Input).value.strip()
+
+        if not url:
+            self.call_from_thread(self.write_log, "[red]✗ URL is required[/]")
+            self.exporting = False
+            return
+
+        self.call_from_thread(self.set_progress, 10, "Connecting...")
+        self.call_from_thread(self.write_log, f"[cyan]>[/] {url[:60]}...")
+
+        try:
+            token = os.getenv("FEISHU_ACCESS_TOKEN")
+
+            if token:
+                exporter = FeishuExporter.from_token(token)
+            else:
+                app_id = self.query_one("#app-id-input", Input).value.strip() or self.config.app_id
+                app_secret = self.query_one("#app-secret-input", Input).value.strip() or self.config.app_secret
+
+                if not app_id or not app_secret:
+                    self.call_from_thread(self.write_log, "[red]✗ No credentials configured[/]")
+                    self.call_from_thread(self.set_progress, 0, "Ready")
+                    self.exporting = False
+                    return
+
+                exporter = FeishuExporter(app_id=app_id, app_secret=app_secret)
+
+            self.call_from_thread(self.set_progress, 40, "Parsing document...")
+
+            output_path = exporter.export(url=url, output_dir=output_dir, table_format="md")
+
+            self.call_from_thread(self.set_progress, 100, "Done!")
+            self.call_from_thread(self.write_log, f"[green]✓ {output_path}[/]")
+
+        except Exception as e:
+            self.call_from_thread(self.set_progress, 0, "Error")
+            self.call_from_thread(self.write_log, f"[red]✗ {e}[/]")
+        finally:
+            self.exporting = False
 
 
 # ==============================================================================
