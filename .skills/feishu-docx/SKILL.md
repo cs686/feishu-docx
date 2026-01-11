@@ -12,19 +12,20 @@ Export Feishu/Lark cloud documents to Markdown format for AI analysis.
 ### Setup (One-time)
 
 1. Install the tool:
-   ```bash
-   pip install feishu-docx
-   ```
+```bash
+pip install feishu-docx
+```
 
 2. Configure Feishu app credentials:
-   ```bash
-   feishu-docx config set --app-id YOUR_APP_ID --app-secret YOUR_APP_SECRET
-   ```
+```bash
+feishu-docx config set --app-id YOUR_APP_ID --app-secret YOUR_APP_SECRET
+# or use 
+```
 
 3. Authorize with OAuth (opens browser):
-   ```bash
-   feishu-docx auth
-   ```
+```bash
+feishu-docx auth
+```
 
 ### Export Documents
 
@@ -39,28 +40,41 @@ The exported Markdown file will be saved with the document's title as filename.
 ### Supported Document Types
 
 - **docx**: Feishu cloud documents → Markdown with images
-- **sheet**: Spreadsheets → Markdown tables  
+- **sheet**: Spreadsheets → Markdown tables
 - **bitable**: Multidimensional tables → Markdown tables
 - **wiki**: Knowledge base nodes → Auto-resolved and exported
 
 ## Examples
 
 ### Export a wiki page
+
 ```bash
 feishu-docx export "https://xxx.feishu.cn/wiki/ABC123" -o ./docs
 ```
 
 ### Export a document with custom filename
+
 ```bash
 feishu-docx export "https://xxx.feishu.cn/docx/XYZ789" -o ./docs -n meeting_notes
 ```
 
 ### Export spreadsheet as Markdown table
+
 ```bash
 feishu-docx export "https://xxx.feishu.cn/sheets/DEF456" --table md
 ```
 
+### Read content directly (recommended for AI Agent)
+
+```bash
+# Output content to stdout instead of saving to file
+feishu-docx export "https://xxx.feishu.cn/wiki/ABC123" --stdout
+# or use short flag
+feishu-docx export "https://xxx.feishu.cn/wiki/ABC123" -c
+```
+
 ### Read content without saving to file (Python)
+
 ```python
 from feishu_docx import FeishuExporter
 
@@ -71,13 +85,13 @@ print(content)
 
 ## Command Reference
 
-| Command | Description |
-|---------|-------------|
+| Command                    | Description                 |
+|----------------------------|-----------------------------|
 | `feishu-docx export <URL>` | Export document to Markdown |
-| `feishu-docx auth` | OAuth authorization |
-| `feishu-docx config set` | Set credentials |
-| `feishu-docx config show` | Show current config |
-| `feishu-docx config clear` | Clear token cache |
+| `feishu-docx auth`         | OAuth authorization         |
+| `feishu-docx config set`    | Set credentials             |
+| `feishu-docx config show`  | Show current config         |
+| `feishu-docx config clear` | Clear token cache           |
 
 ## Tips
 

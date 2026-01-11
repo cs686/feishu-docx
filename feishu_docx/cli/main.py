@@ -13,10 +13,6 @@
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
 
-import warnings
-
-warnings.filterwarnings("ignore", category=UserWarning)
-
 import os
 from pathlib import Path
 from typing import Optional
@@ -157,6 +153,12 @@ def export(
             "--lark",
             help="使用 Lark (海外版)",
         ),
+        stdout: bool = typer.Option(
+            False,
+            "--stdout",
+            "-c",
+            help="直接输出内容到 stdout（不保存文件，适合 AI Agent 使用）",
+        ),
 ):
     """
     [green]▶[/] 导出飞书文档为 Markdown
@@ -175,6 +177,9 @@ def export(
 
         # 导出到指定目录 \n
         feishu-docx export "https://xxx.feishu.cn/docx/xxx" -o ./docs -n my_doc
+
+        # 直接输出内容（适合 AI Agent）\n
+        feishu-docx export "https://xxx.feishu.cn/docx/xxx" --stdout
     """
     try:
         # 创建导出器
@@ -199,14 +204,19 @@ def export(
                 raise typer.Exit(1)
 
         # 执行导出
-        output_path = exporter.export(
-            url=url,
-            output_dir=output,
-            filename=filename,
-            table_format=table_format,  # type: ignore
-        )
-
-        console.print(Panel(f"✅ 导出完成: [green]{output_path}[/green]", border_style="green"))
+        if stdout:
+            # 直接输出内容到 stdout
+            content = exporter.export_content(url=url, table_format=table_format)  # type: ignore
+            print(content)
+        else:
+            # 保存到文件
+            output_path = exporter.export(
+                url=url,
+                output_dir=output,
+                filename=filename,
+                table_format=table_format,  # type: ignore
+            )
+            console.print(Panel(f"✅ 导出完成: [green]{output_path}[/green]", border_style="green"))
 
     except ValueError as e:
         console.print(f"[red]❌ 错误: {e}[/red]")
@@ -404,7 +414,8 @@ def config_show():
     if os.getenv("FEISHU_ACCESS_TOKEN"):
         table.add_row("Access Token", "环境变量", "[dim]已设置（已隐藏）[/dim]")
     else:
-        table.add_row("Access Token", "-", "[dim]未设置[/dim]")
+        if not (app_secret_env or config.app_secret) and not (app_id_env or config.app_id):
+            table.add_row("Access Token", "-", "[dim]未设置[/dim]")
 
     # Lark 模式
     table.add_row("Lark 模式", "配置文件", "是" if config.is_lark else "否")

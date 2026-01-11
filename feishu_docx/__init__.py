@@ -13,7 +13,13 @@
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
 
-__version__ = "0.1.1"
+# ⚠️ 必须在最顶部，抑制第三方库警告（如 lark_oapi）
+import warnings
+warnings.filterwarnings("ignore", category=UserWarning)
+warnings.filterwarnings("ignore", category=DeprecationWarning)
+warnings.filterwarnings("ignore", message=".*pkg_resources.*")
+
+__version__ = "0.1.2"
 
 from feishu_docx.core.exporter import FeishuExporter
 
