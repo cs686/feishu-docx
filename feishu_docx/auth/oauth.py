@@ -75,6 +75,16 @@ class TokenInfo:
 class OAuthCallbackHandler(BaseHTTPRequestHandler):
     """处理 OAuth 回调的 HTTP Handler"""
 
+    # 错误代码映射
+    ERROR_MESSAGES = {
+        "access_denied": "您拒绝了授权请求",
+        "invalid_request": "请求参数无效",
+        "unauthorized_client": "应用未授权",
+        "unsupported_response_type": "不支持的响应类型",
+        "invalid_scope": "请求的权限无效",
+        "server_error": "服务器内部错误",
+    }
+
     def log_message(self, format, *args):
         """禁用默认日志输出"""
         pass
@@ -97,65 +107,22 @@ class OAuthCallbackHandler(BaseHTTPRequestHandler):
 
     def _send_success_response(self):
         """发送成功响应页面"""
-        html = """
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <meta charset="UTF-8">
-            <title>授权成功</title>
-            <style>
-                body { font-family: -apple-system, sans-serif; display: flex; 
-                       justify-content: center; align-items: center; height: 100vh;
-                       margin: 0; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }
-                .card { background: white; padding: 40px 60px; border-radius: 16px;
-                        box-shadow: 0 20px 60px rgba(0,0,0,0.3); text-align: center; }
-                h1 { color: #22c55e; margin-bottom: 10px; }
-                p { color: #666; }
-            </style>
-        </head>
-        <body>
-            <div class="card">
-                <h1>✅ 授权成功</h1>
-                <p>您可以关闭此页面并返回终端</p>
-            </div>
-        </body>
-        </html>
-        """
+        from feishu_docx.auth.templates import SUCCESS_HTML
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.end_headers()
-        self.wfile.write(html.encode("utf-8"))
+        self.wfile.write(SUCCESS_HTML.encode("utf-8"))
 
     def _send_error_response(self, error: str):
         """发送错误响应页面"""
-        html = f"""
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <meta charset="UTF-8">
-            <title>授权失败</title>
-            <style>
-                body {{ font-family: -apple-system, sans-serif; display: flex; 
-                       justify-content: center; align-items: center; height: 100vh;
-                       margin: 0; background: #fee2e2; }}
-                .card {{ background: white; padding: 40px 60px; border-radius: 16px;
-                        box-shadow: 0 20px 60px rgba(0,0,0,0.1); text-align: center; }}
-                h1 {{ color: #ef4444; margin-bottom: 10px; }}
-                p {{ color: #666; }}
-            </style>
-        </head>
-        <body>
-            <div class="card">
-                <h1>❌ 授权失败</h1>
-                <p>错误: {error}</p>
-            </div>
-        </body>
-        </html>
-        """
+        from feishu_docx.auth.templates import get_error_html
+        error_desc = self.ERROR_MESSAGES.get(error, f"未知错误: {error}")
+        html = get_error_html(error, error_desc)
         self.send_response(400)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.end_headers()
         self.wfile.write(html.encode("utf-8"))
+
 
 
 class OAuthCallbackServer(HTTPServer):
