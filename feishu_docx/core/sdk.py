@@ -196,6 +196,262 @@ class FeishuSDK:
         data = json.loads(response.raw.content)
         return data.get("data", {}).get("items", [])
 
+    def create_document(
+        self, title: str, user_access_token: str, folder_token: Optional[str] = None
+    ) -> dict:
+        """
+        创建空白文档
+
+        Args:
+            title: 文档标题
+            user_access_token: 用户访问凭证
+            folder_token: 目标文件夹 token（可选）
+
+        Returns:
+            包含 document_id, revision_id, title 的字典
+        """
+        from lark_oapi.api.docx.v1 import (
+            CreateDocumentRequest,
+            CreateDocumentRequestBody,
+            CreateDocumentResponse,
+        )
+
+        body = CreateDocumentRequestBody.builder().title(title)
+        if folder_token:
+            body = body.folder_token(folder_token)
+
+        request = CreateDocumentRequest.builder().request_body(body.build()).build()
+        option = lark.RequestOption.builder().user_access_token(user_access_token).build()
+        response: CreateDocumentResponse = self.client.docx.v1.document.create(request, option)
+
+        if not response.success():
+            self._log_error("docx.v1.document.create", response)
+            raise RuntimeError(f"创建文档失败: {response.msg}")
+
+        doc = response.data.document
+        return {
+            "document_id": doc.document_id,
+            "revision_id": doc.revision_id,
+            "title": doc.title,
+        }
+
+    def create_blocks(
+        self,
+        document_id: str,
+        block_id: str,
+        children: List[dict],
+        user_access_token: str,
+        index: int = -1,
+    ) -> List[dict]:
+        """
+        在指定 Block 下创建子 Block
+
+        Args:
+            document_id: 文档 ID
+            block_id: 父 Block ID（通常是 document_id 作为根节点）
+            children: 子 Block 列表
+            user_access_token: 用户访问凭证
+            index: 插入位置，-1 表示末尾
+
+        Returns:
+            创建的 Block 列表
+        """
+        from lark_oapi.api.docx.v1 import (
+            CreateDocumentBlockChildrenRequest,
+            CreateDocumentBlockChildrenRequestBody,
+            CreateDocumentBlockChildrenResponse,
+        )
+
+        body_builder = CreateDocumentBlockChildrenRequestBody.builder().children(children)
+        if index >= 0:
+            body_builder = body_builder.index(index)
+
+        request = (
+            CreateDocumentBlockChildrenRequest.builder()
+            .document_id(document_id)
+            .block_id(block_id)
+            .document_revision_id(-1)
+            .request_body(body_builder.build())
+            .build()
+        )
+        option = lark.RequestOption.builder().user_access_token(user_access_token).build()
+        response: CreateDocumentBlockChildrenResponse = (
+            self.client.docx.v1.document_block_children.create(request, option)
+        )
+
+        if not response.success():
+            self._log_error("docx.v1.document_block_children.create", response)
+            raise RuntimeError(f"创建 Block 失败: {response.msg}")
+
+        data = json.loads(response.raw.content)
+        return data.get("data", {}).get("children", [])
+
+    def update_block(
+        self, document_id: str, block_id: str, update_body: dict, user_access_token: str
+    ) -> dict:
+        """
+        更新单个 Block 内容
+
+        Args:
+            document_id: 文档 ID
+            block_id: Block ID
+            update_body: 更新内容（如 text, heading1 等）
+            user_access_token: 用户访问凭证
+
+        Returns:
+            更新后的 Block
+        """
+        from lark_oapi.api.docx.v1 import (
+            PatchDocumentBlockRequest,
+            PatchDocumentBlockResponse,
+        )
+
+        request = (
+            PatchDocumentBlockRequest.builder()
+            .document_id(document_id)
+            .block_id(block_id)
+            .document_revision_id(-1)
+            .request_body(update_body)
+            .build()
+        )
+        option = lark.RequestOption.builder().user_access_token(user_access_token).build()
+        response: PatchDocumentBlockResponse = self.client.docx.v1.document_block.patch(
+            request, option
+        )
+
+        if not response.success():
+            self._log_error("docx.v1.document_block.patch", response)
+            raise RuntimeError(f"更新 Block 失败: {response.msg}")
+
+        data = json.loads(response.raw.content)
+        return data.get("data", {}).get("block", {})
+
+    def batch_update_blocks(
+        self, document_id: str, requests: List[dict], user_access_token: str
+    ) -> List[dict]:
+        """
+        批量更新多个 Block
+
+        Args:
+            document_id: 文档 ID
+            requests: 更新请求列表，每个包含 block_id 和更新内容
+            user_access_token: 用户访问凭证
+
+        Returns:
+            更新后的 Block 列表
+        """
+        from lark_oapi.api.docx.v1 import (
+            BatchUpdateDocumentBlockRequest,
+            BatchUpdateDocumentBlockRequestBody,
+            BatchUpdateDocumentBlockResponse,
+        )
+
+        request = (
+            BatchUpdateDocumentBlockRequest.builder()
+            .document_id(document_id)
+            .document_revision_id(-1)
+            .request_body(
+                BatchUpdateDocumentBlockRequestBody.builder().requests(requests).build()
+            )
+            .build()
+        )
+        option = lark.RequestOption.builder().user_access_token(user_access_token).build()
+        response: BatchUpdateDocumentBlockResponse = (
+            self.client.docx.v1.document_block.batch_update(request, option)
+        )
+
+        if not response.success():
+            self._log_error("docx.v1.document_block.batch_update", response)
+            raise RuntimeError(f"批量更新 Block 失败: {response.msg}")
+
+        data = json.loads(response.raw.content)
+        return data.get("data", {}).get("blocks", [])
+
+    def convert_markdown(self, markdown_content: str, user_access_token: str) -> List[dict]:
+        """
+        将 Markdown 转换为飞书 Block 结构
+
+        使用飞书原生 API 转换，比自定义转换器更可靠。
+
+        Args:
+            markdown_content: Markdown 内容
+            user_access_token: 用户访问凭证
+
+        Returns:
+            Block 列表
+        """
+        from lark_oapi.api.docx.v1 import (
+            ConvertDocumentRequest,
+            ConvertDocumentRequestBody,
+            ConvertDocumentResponse,
+        )
+
+        request = (
+            ConvertDocumentRequest.builder()
+            .request_body(
+                ConvertDocumentRequestBody.builder()
+                .content_type("markdown")
+                .content(markdown_content)
+                .build()
+            )
+            .build()
+        )
+        option = lark.RequestOption.builder().user_access_token(user_access_token).build()
+        response: ConvertDocumentResponse = self.client.docx.v1.document.convert(request, option)
+
+        if not response.success():
+            self._log_error("docx.v1.document.convert", response)
+            raise RuntimeError(f"Markdown 转换失败: {response.msg}")
+
+        data = json.loads(response.raw.content)
+        return data.get("data", {}).get("children", [])
+
+    def delete_blocks(
+        self, document_id: str, block_id: str, start_index: int, end_index: int, user_access_token: str
+    ) -> bool:
+        """
+        删除指定范围的子 Block
+
+        Args:
+            document_id: 文档 ID
+            block_id: 父 Block ID
+            start_index: 起始索引
+            end_index: 结束索引
+            user_access_token: 用户访问凭证
+
+        Returns:
+            是否成功
+        """
+        from lark_oapi.api.docx.v1 import (
+            BatchDeleteDocumentBlockChildrenRequest,
+            BatchDeleteDocumentBlockChildrenRequestBody,
+            BatchDeleteDocumentBlockChildrenResponse,
+        )
+
+        request = (
+            BatchDeleteDocumentBlockChildrenRequest.builder()
+            .document_id(document_id)
+            .block_id(block_id)
+            .document_revision_id(-1)
+            .request_body(
+                BatchDeleteDocumentBlockChildrenRequestBody.builder()
+                .start_index(start_index)
+                .end_index(end_index)
+                .build()
+            )
+            .build()
+        )
+        option = lark.RequestOption.builder().user_access_token(user_access_token).build()
+        response: BatchDeleteDocumentBlockChildrenResponse = (
+            self.client.docx.v1.document_block_children.batch_delete(request, option)
+        )
+
+        if not response.success():
+            self._log_error("docx.v1.document_block_children.batch_delete", response)
+            return False
+
+        return True
+
     # ==========================================================================
     # 图片 & 附件
     # ==========================================================================
