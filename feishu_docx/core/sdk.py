@@ -31,6 +31,7 @@ from lark_oapi.api.bitable.v1 import (
     SearchAppTableRecordRequestBody,
     SearchAppTableRecordResponse,
 )
+from lark_oapi.api.bitable.v1 import GetAppRequest, GetAppResponse
 from lark_oapi.api.board.v1 import (
     DownloadAsImageWhiteboardRequest,
     DownloadAsImageWhiteboardResponse,
@@ -179,25 +180,36 @@ class FeishuSDK:
         Returns:
             Block 列表（原始 dict）
         """
-        request = (
-            ListDocumentBlockRequest.builder()
-            .document_id(document_id)
-            .page_size(500)
-            .document_revision_id(-1)
-            .build()
-        )
-        option = lark.RequestOption.builder().user_access_token(user_access_token).build()
-        response: ListDocumentBlockResponse = self.client.docx.v1.document_block.list(request, option)
+        has_more = True
+        page_token = None
+        blocks = []
 
-        if not response.success():
-            self._log_error("docx.v1.document_block.list", response)
-            raise RuntimeError("获取文档 Block 列表失败")
+        while has_more:
+            request = (
+                ListDocumentBlockRequest.builder()
+                .document_id(document_id)
+                .page_size(500)
+                .document_revision_id(-1)
+                .build()
+            )
+            if page_token:
+                request.add_query("page_token", page_token)
 
-        data = json.loads(response.raw.content)
-        return data.get("data", {}).get("items", [])
+            option = lark.RequestOption.builder().user_access_token(user_access_token).build()
+            response: ListDocumentBlockResponse = self.client.docx.v1.document_block.list(request, option)
+
+            if not response.success():
+                self._log_error("docx.v1.document_block.list", response)
+                raise RuntimeError("获取文档 Block 列表失败")
+
+            has_more = response.data.has_more
+            page_token = response.data.page_token
+            blocks.extend(json.loads(response.raw.content).get("data", {}).get("items", []))
+
+        return blocks
 
     def create_document(
-        self, title: str, user_access_token: str, folder_token: Optional[str] = None
+            self, title: str, user_access_token: str, folder_token: Optional[str] = None
     ) -> dict:
         """
         创建空白文档
@@ -236,12 +248,12 @@ class FeishuSDK:
         }
 
     def create_blocks(
-        self,
-        document_id: str,
-        block_id: str,
-        children: List[dict],
-        user_access_token: str,
-        index: int = -1,
+            self,
+            document_id: str,
+            block_id: str,
+            children: List[dict],
+            user_access_token: str,
+            index: int = -1,
     ) -> List[dict]:
         """
         在指定 Block 下创建子 Block
@@ -287,7 +299,7 @@ class FeishuSDK:
         return data.get("data", {}).get("children", [])
 
     def update_block(
-        self, document_id: str, block_id: str, update_body: dict, user_access_token: str
+            self, document_id: str, block_id: str, update_body: dict, user_access_token: str
     ) -> dict:
         """
         更新单个 Block 内容
@@ -327,7 +339,7 @@ class FeishuSDK:
         return data.get("data", {}).get("block", {})
 
     def batch_update_blocks(
-        self, document_id: str, requests: List[dict], user_access_token: str
+            self, document_id: str, requests: List[dict], user_access_token: str
     ) -> List[dict]:
         """
         批量更新多个 Block
@@ -407,7 +419,7 @@ class FeishuSDK:
         return data.get("data", {}).get("children", [])
 
     def delete_blocks(
-        self, document_id: str, block_id: str, start_index: int, end_index: int, user_access_token: str
+            self, document_id: str, block_id: str, start_index: int, end_index: int, user_access_token: str
     ) -> bool:
         """
         删除指定范围的子 Block
@@ -695,7 +707,6 @@ class FeishuSDK:
         Returns:
             包含 app_token, name (标题) 的字典
         """
-        from lark_oapi.api.bitable.v1 import GetAppRequest, GetAppResponse
 
         request = GetAppRequest.builder().app_token(app_token).build()
         option = lark.RequestOption.builder().user_access_token(user_access_token).build()
