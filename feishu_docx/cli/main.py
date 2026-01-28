@@ -2,11 +2,14 @@
 # -*- coding: utf-8 -*-
 # =====================================================
 # @File   ：main.py
-# @Date   ：2026/01/28 12:05
+# @Date   ：2026/01/28 19:00
 # @Author ：leemysw
 # 2025/01/09 18:30   Create
 # 2026/01/28 11:10   Support folder url parsing
 # 2026/01/28 12:05   Use safe console output
+# 2026/01/28 16:00   Add whiteboard metadata export option
+# 2026/01/28 18:00   Add workspace schema and wiki batch export commands
+# 2026/01/28 19:00   Fix wiki export: support old doc format, preserve hierarchy
 # =====================================================
 """
 [INPUT]: 依赖 typer 的 CLI 框架，依赖 feishu_docx.core.exporter 的导出器
@@ -186,6 +189,11 @@ def export(
             "-b",
             help="在导出的 Markdown 中嵌入 Block ID 注释（用于后续更新文档）",
         ),
+        export_board_metadata: bool = typer.Option(
+            False,
+            "--export-board-metadata",
+            help="导出画板节点元数据（包含位置、大小、类型等信息）",
+        ),
 ):
     """
     [green]▶[/] 导出飞书文档为 Markdown
@@ -207,6 +215,9 @@ def export(
 
         # 直接输出内容（适合 AI Agent）\n
         feishu-docx export "https://xxx.feishu.cn/docx/xxx" --stdout
+
+        # 同时导出画板图片和元数据 \n
+        feishu-docx export "https://xxx.feishu.cn/docx/xxx" --export-board-metadata
     """
     try:
         # 创建导出器
@@ -233,7 +244,11 @@ def export(
         # 执行导出
         if stdout:
             # 直接输出内容到 stdout
-            content = exporter.export_content(url=url, table_format=table_format)  # type: ignore
+            content = exporter.export_content(
+                url=url,
+                table_format=table_format,  # type: ignore
+                export_board_metadata=export_board_metadata,
+            )
             print(content)
         else:
             # 保存到文件
@@ -243,6 +258,7 @@ def export(
                 filename=filename,
                 table_format=table_format,  # type: ignore
                 with_block_ids=with_block_ids,
+                export_board_metadata=export_board_metadata,
             )
             console.print(Panel(f"✅ 导出完成: [green]{output_path}[/green]", border_style="green"))
 
@@ -490,6 +506,331 @@ def update(
 
     except Exception as e:
         console.print(f"[red]❌ 更新失败: {e}[/red]")
+        raise typer.Exit(1)
+
+
+# ==============================================================================
+# export-workspace-schema 命令 - 导出数据库结构
+# ==============================================================================
+@app.command()
+def export_workspace_schema(
+        workspace_id: str = typer.Argument(..., help="工作空间 ID"),
+        output: Path = typer.Option(
+            Path("./database_schema.md"),
+            "-o",
+            "--output",
+            help="输出文件路径",
+        ),
+        token: Optional[str] = typer.Option(
+            None,
+            "-t",
+            "--token",
+            envvar="FEISHU_ACCESS_TOKEN",
+            help="用户访问凭证",
+        ),
+        app_id: Optional[str] = typer.Option(None, "--app-id", help="飞书应用 App ID"),
+        app_secret: Optional[str] = typer.Option(None, "--app-secret", help="飞书应用 App Secret"),
+        lark: bool = typer.Option(False, "--lark", help="使用 Lark (海外版)"),
+):
+    """
+    [green]▶[/] 导出数据库结构为 Markdown
+
+    示例:
+
+        # 导出工作空间数据库结构\\n
+        feishu-docx export-workspace-schema <workspace_id>
+
+        # 指定输出文件\\n
+        feishu-docx export-workspace-schema <workspace_id> -o schema.md
+    """
+    try:
+        # 获取凭证
+        if token:
+            exporter = FeishuExporter.from_token(token)
+            access_token = token
+        else:
+            final_app_id, final_app_secret = get_credentials(app_id, app_secret)
+            if not final_app_id or not final_app_secret:
+                console.print("[red]❌ 需要提供凭证[/red]")
+                raise typer.Exit(1)
+            exporter = FeishuExporter(app_id=final_app_id, app_secret=final_app_secret, is_lark=lark)
+            access_token = exporter.get_access_token()
+
+        console.print(f"[blue]> 工作空间 ID:[/blue] {workspace_id}")
+        console.print("[yellow]> 正在获取数据表列表...[/yellow]")
+
+        # 获取所有数据表
+        tables = exporter.sdk.get_all_workspace_tables(
+            workspace_id=workspace_id,
+            user_access_token=access_token,
+        )
+
+        if not tables:
+            console.print("[yellow]⚠ 未找到数据表[/yellow]")
+            raise typer.Exit(0)
+
+        console.print(f"[green]✓ 找到 {len(tables)} 个数据表[/green]")
+
+        # 生成 Markdown
+        markdown_lines = [
+            "# 工作空间数据库结构",
+            "",
+            f"**工作空间 ID**: `{workspace_id}`",
+            f"**数据表数量**: {len(tables)}",
+            "",
+        ]
+
+        for table in tables:
+            table_name = table.get("name", "")
+            description = table.get("description", "")
+            columns = table.get("columns", [])
+
+            markdown_lines.extend([
+                f"## 📋 {table_name}",
+                "",
+            ])
+
+            if description:
+                markdown_lines.extend([f"> {description}", ""])
+
+            markdown_lines.extend([
+                "| 列名 | 类型 | 主键 | 唯一 | 自增 | 数组 | 允许空 | 默认值 | 描述 |",
+                "|------|------|------|------|------|------|--------|--------|------|",
+            ])
+
+            for col in columns:
+                row = (
+                    f"| {col.get('name', '')} "
+                    f"| {col.get('data_type', '')} "
+                    f"| {'✓' if col.get('is_primary_key') else ''} "
+                    f"| {'✓' if col.get('is_unique') else ''} "
+                    f"| {'✓' if col.get('is_auto_increment') else ''} "
+                    f"| {'✓' if col.get('is_array') else ''} "
+                    f"| {'✓' if col.get('is_allow_null') else ''} "
+                    f"| {col.get('default_value', '')} "
+                    f"| {col.get('description', '')} |"
+                )
+                markdown_lines.append(row)
+
+            markdown_lines.append("")
+
+        # 保存文件
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text("\n".join(markdown_lines), encoding="utf-8")
+
+        console.print(Panel(f"✅ 数据库结构已导出: [green]{output}[/green]", border_style="green"))
+
+    except Exception as e:
+        console.print(f"[red]❌ 导出失败: {e}[/red]")
+        raise typer.Exit(1)
+
+
+# ==============================================================================
+# export-wiki-space 命令 - 批量导出知识空间
+# ==============================================================================
+@app.command()
+def export_wiki_space(
+        space_id_or_url: str = typer.Argument(..., help="知识空间 ID、Wiki URL 或 my_library"),
+        output: Path = typer.Option(
+            Path("./wiki_export"),
+            "-o",
+            "--output",
+            help="输出目录",
+        ),
+        parent_node: Optional[str] = typer.Option(
+            None,
+            "--parent-node",
+            help="父节点 token（不传则导出根节点下所有文档）",
+        ),
+        max_depth: int = typer.Option(
+            3,
+            "--max-depth",
+            help="最大遍历深度",
+        ),
+        token: Optional[str] = typer.Option(
+            None,
+            "-t",
+            "--token",
+            envvar="FEISHU_ACCESS_TOKEN",
+            help="用户访问凭证",
+        ),
+        app_id: Optional[str] = typer.Option(None, "--app-id", help="飞书应用 App ID"),
+        app_secret: Optional[str] = typer.Option(None, "--app-secret", help="飞书应用 App Secret"),
+        lark: bool = typer.Option(False, "--lark", help="使用 Lark (海外版)"),
+):
+    """
+    [green]▶[/] 批量导出知识空间下的所有文档
+
+    支持直接输入 Wiki URL，自动提取知识空间 ID。
+
+    示例:
+
+        # 使用 Wiki URL（自动提取 space_id）\\n
+        feishu-docx export-wiki-space "https://my.feishu.cn/wiki/<token>"
+
+        # 直接使用知识空间 ID\\n
+        feishu-docx export-wiki-space <space_id>
+
+        # 导出我的文档库\\n
+        feishu-docx export-wiki-space my_library -o ./my_docs
+
+        # 限制遍历深度\\n
+        feishu-docx export-wiki-space my_library --max-depth 2
+    """
+    try:
+        # 获取凭证
+        if token:
+            exporter = FeishuExporter.from_token(token)
+            access_token = token
+        else:
+            final_app_id, final_app_secret = get_credentials(app_id, app_secret)
+            if not final_app_id or not final_app_secret:
+                console.print("[red]❌ 需要提供凭证[/red]")
+                raise typer.Exit(1)
+            exporter = FeishuExporter(app_id=final_app_id, app_secret=final_app_secret, is_lark=lark)
+            access_token = exporter.get_access_token()
+
+        # 解析输入参数，支持 URL、space_id 或 my_library
+        space_id = space_id_or_url
+        
+        if space_id_or_url.startswith(("http://", "https://")):
+            # 输入是 URL，解析并获取 space_id
+            console.print("[yellow]> 检测到 Wiki URL，正在自动提取知识空间 ID...[/yellow]")
+            
+            try:
+                doc_info = exporter.parse_url(space_id_or_url)
+            except ValueError as e:
+                console.print(f"[red]❌ URL 格式错误: {e}[/red]")
+                raise typer.Exit(1)
+            
+            if doc_info.doc_type != "wiki":
+                console.print(
+                    f"[red]❌ 输入的不是 Wiki 链接（类型: {doc_info.doc_type}）[/red]\n"
+                    f"[yellow]💡 提示: 请提供 Wiki URL 或直接使用 space_id[/yellow]"
+                )
+                raise typer.Exit(1)
+            
+            node_token = doc_info.doc_id
+            console.print(f"[dim]  节点 Token: {node_token}[/dim]")
+            
+            # 获取节点信息并提取 space_id
+            node_info = exporter.sdk.get_wiki_node_by_token(
+                token=node_token,
+                user_access_token=access_token,
+            )
+            
+            if not node_info or not node_info.get("space_id"):
+                console.print("[red]❌ 无法获取知识空间信息[/red]")
+                raise typer.Exit(1)
+            
+            space_id = node_info.get("space_id")
+            console.print(f"[green]✓ 成功提取知识空间 ID:[/green] {space_id}")
+            
+            if node_info.get("title"):
+                console.print(f"[dim]  页面标题: {node_info.get('title')}[/dim]")
+
+        console.print(f"[blue]> 知识空间 ID:[/blue] {space_id}")
+        console.print(f"[blue]> 输出目录:[/blue] {output}")
+        console.print(f"[blue]> 最大深度:[/blue] {max_depth}")
+
+        # 创建输出目录
+        output.mkdir(parents=True, exist_ok=True)
+
+        exported_count = 0
+        failed_count = 0
+
+        # 确定域名
+        domain = "larksuite.com" if lark else "my.feishu.cn"
+
+        # 递归遍历节点
+        def traverse_nodes(parent_token: Optional[str] = None, depth: int = 0, current_path: Path = output):
+            nonlocal exported_count, failed_count
+
+            if depth > max_depth:
+                return
+
+            console.print(f"[yellow]> 正在遍历第 {depth} 层: {current_path.name}...[/yellow]")
+
+            # 获取子节点列表
+            nodes = exporter.sdk.get_all_wiki_space_nodes(
+                space_id=space_id,
+                user_access_token=access_token,
+                parent_node_token=parent_token,
+            )
+
+            if not nodes:
+                return
+
+            for node in nodes:
+                node_token = node.get("node_token")
+                obj_type = node.get("obj_type")
+                obj_token = node.get("obj_token")
+                title = node.get("title", "untitled")
+                has_child = node.get("has_child", False)
+
+                # 清理文件名中的非法字符
+                safe_title = title.replace("/", "_").replace("\\", "_")
+
+                # 判断是否为文档类型
+                if obj_type in ["doc", "docx", "sheet", "bitable"]:
+                    try:
+                        # 构建文档 URL
+                        url = f"https://{domain}/{obj_type}/{obj_token}"
+
+                        # 如果有子节点，创建子目录并导出
+                        if has_child:
+                            # 创建以文档名命名的子目录
+                            doc_dir = current_path / safe_title
+                            doc_dir.mkdir(parents=True, exist_ok=True)
+                            
+                            # 导出文档到子目录
+                            file_path = exporter.export(
+                                url=url,
+                                output_dir=doc_dir,
+                                filename=safe_title,
+                                silent=True,
+                            )
+                            exported_count += 1
+                            console.print(f"[green]✓ 已导出:[/green] {safe_title} → {doc_dir.relative_to(output)}")
+                            
+                            # 递归处理子节点
+                            traverse_nodes(node_token, depth + 1, doc_dir)
+                        else:
+                            # 无子节点，直接导出到当前目录
+                            file_path = exporter.export(
+                                url=url,
+                                output_dir=current_path,
+                                filename=safe_title,
+                                silent=True,
+                            )
+                            exported_count += 1
+                            console.print(f"[green]✓ 已导出:[/green] {safe_title}")
+                    except Exception as e:
+                        failed_count += 1
+                        console.print(f"[red]✗ 导出失败:[/red] {safe_title} - {e}")
+                else:
+                    # 非文档类型（如文件夹），只递归处理子节点
+                    if has_child:
+                        # 为文件夹创建子目录
+                        folder_dir = current_path / safe_title
+                        folder_dir.mkdir(parents=True, exist_ok=True)
+                        console.print(f"[cyan]📁 文件夹:[/cyan] {safe_title}")
+                        traverse_nodes(node_token, depth + 1, folder_dir)
+
+        # 开始遍历
+        traverse_nodes(parent_node)
+
+        # 输出统计
+        console.print(Panel(
+            f"✅ 导出完成!\n\n"
+            f"[green]成功:[/green] {exported_count} 个文档\n"
+            f"[red]失败:[/red] {failed_count} 个文档\n"
+            f"[blue]输出目录:[/blue] {output}",
+            border_style="green",
+        ))
+
+    except Exception as e:
+        console.print(f"[red]❌ 批量导出失败: {e}[/red]")
         raise typer.Exit(1)
 
 
