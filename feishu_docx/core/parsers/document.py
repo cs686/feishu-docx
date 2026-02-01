@@ -102,9 +102,9 @@ class DocumentParser:
 
         # 阶段1: 获取 Block 列表
         with pm.spinner("获取文档结构..."):
-            raw_data = self.sdk.get_document_block_list(
+            raw_data = self.sdk.docx.get_block_list(
                 document_id=self.document_id,
-                user_access_token=self.user_access_token,
+                access_token=self.user_access_token,
             )
 
         total_blocks = len(raw_data)
@@ -277,7 +277,7 @@ class DocumentParser:
         if bt == BlockType.IMAGE:
             if not block.image or not block.image.token:
                 return ""
-            file_path = self.sdk.get_image(block.image.token, user_access_token=self.user_access_token)
+            file_path = self.sdk.media.get_image(block.image.token, access_token=self.user_access_token)
             if file_path:
                 # 使用相对路径：资源目录名/文件名
                 if self.assets_dir:
@@ -286,7 +286,6 @@ class DocumentParser:
                 return f"![image]({file_path})"
             else:
                 return f"![图片下载失败]({block.image.token})"
-            return ""
 
         if bt == BlockType.BOARD:
             if not block.board or not block.board.token:
@@ -297,9 +296,9 @@ class DocumentParser:
             # 根据配置决定是否导出元数据
             if self.export_board_metadata:
                 # 同时导出图片和元数据
-                board_data = self.sdk.get_whiteboard_with_metadata(
+                board_data = self.sdk.media.get_whiteboard_with_metadata(
                     whiteboard_id=whiteboard_id,
-                    user_access_token=self.user_access_token,
+                    access_token=self.user_access_token,
                     export_image=True,
                     export_metadata=True,
                 )
@@ -327,7 +326,7 @@ class DocumentParser:
                 return "\n\n".join(content_parts)
             else:
                 # 仅导出图片（现有逻辑）
-                file_path = self.sdk.get_whiteboard(whiteboard_id, user_access_token=self.user_access_token)
+                file_path = self.sdk.media.get_whiteboard(whiteboard_id, access_token=self.user_access_token)
                 if file_path:
                     # 使用相对路径
                     if self.assets_dir:
@@ -342,10 +341,10 @@ class DocumentParser:
                 return ""
             token_parts = block.sheet.token.split("_")
             if len(token_parts) >= 2:
-                return self.sdk.get_sheet(
+                return self.sdk.sheet.get_sheet(
                     sheet_token=token_parts[0],
                     sheet_id=token_parts[1],
-                    user_access_token=self.user_access_token,
+                    access_token=self.user_access_token,
                     table_mode=self.table_mode,
                 ) or ""
             return ""
@@ -356,10 +355,10 @@ class DocumentParser:
                 return ""
             token_parts = block.bitable.token.split("_")
             if len(token_parts) >= 2:
-                return self.sdk.get_bitable(
+                return self.sdk.bitable.get_bitable(
                     app_token=token_parts[0],
                     table_id=token_parts[1],
-                    user_access_token=self.user_access_token,
+                    access_token=self.user_access_token,
                     table_mode=self.table_mode,
                 ) or ""
             return ""
@@ -370,11 +369,11 @@ class DocumentParser:
                 return ""
             token_parts = block.reference_base.token.split("_")
             if len(token_parts) == 2 and token_parts[1].startswith("tb"):
-                return self.sdk.get_bitable(
+                return self.sdk.bitable.get_bitable(
                     app_token=token_parts[0],
                     table_id=token_parts[1],
                     view_id=block.reference_base.view_id,
-                    user_access_token=self.user_access_token,
+                    access_token=self.user_access_token,
                     table_mode=self.table_mode,
                 ) or ""
             return ""
@@ -386,7 +385,7 @@ class DocumentParser:
             file_name = block.file.name or "未命名文件"
             file_token = block.file.token
             # 获取临时下载 URL
-            download_url = self.sdk.get_file_download_url(file_token, self.user_access_token)
+            download_url = self.sdk.media.get_file_download_url(file_token, self.user_access_token)
             if download_url:
                 return f"📎 [{file_name}]({download_url})"
             # 回退：使用 token 作为标识
@@ -419,7 +418,7 @@ class DocumentParser:
                     if style.link:
                         text = f"[{text}]({unquote(style.link.url)})"
             elif el.mention_user:
-                user_name = self.sdk.get_user_name(el.mention_user.user_id, self.user_access_token)
+                user_name = self.sdk.contact.get_user_name(el.mention_user.user_id, self.user_access_token)
                 text = f"@{user_name}"
             elif el.mention_doc:
                 text = f"[{el.mention_doc.token}]"

@@ -67,9 +67,9 @@ class SheetParser:
 
         # 获取工作表列表
         with pm.spinner("获取工作表列表..."):
-            sheets = self.sdk.get_sheet_list(
+            sheets = self.sdk.sheet.get_sheet_list(
                 spreadsheet_token=self.spreadsheet_token,
-                user_access_token=self.user_access_token,
+                access_token=self.user_access_token,
             )
 
         total_sheets = len(sheets)
@@ -91,10 +91,10 @@ class SheetParser:
                 sheet_data = None
 
                 if resource_type == "sheet":
-                    sheet_data = self.sdk.get_sheet(
+                    sheet_data = self.sdk.sheet.get_sheet(
                         sheet_token=self.spreadsheet_token,
                         sheet_id=sheet_id,
-                        user_access_token=self.user_access_token,
+                        access_token=self.user_access_token,
                         table_mode=self.table_mode,
                     )
                 elif resource_type == "bitable":
@@ -118,9 +118,9 @@ class SheetParser:
 
         # 获取 block info
         if not self.block_info:
-            blocks = self.sdk.get_sheet_metadata(
+            blocks = self.sdk.sheet.get_sheet_metadata(
                 spreadsheet_token=self.spreadsheet_token,
-                user_access_token=self.user_access_token,
+                access_token=self.user_access_token,
             )
             if blocks:
                 for block in blocks:
@@ -139,9 +139,9 @@ class SheetParser:
             pm.log(f"  [yellow]跳过无效 token: {sheet_title}[/yellow]")
             return None
 
-        return self.sdk.get_bitable(
+        return self.sdk.bitable.get_bitable(
             app_token=token_parts[0],
             table_id=token_parts[1],
-            user_access_token=self.user_access_token,
+            access_token=self.user_access_token,
             table_mode=self.table_mode,
         )

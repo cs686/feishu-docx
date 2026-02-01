@@ -64,9 +64,9 @@ class BitableParser:
             if self.node_token is None:
                 raise ValueError("需要提供 app_token 或 node_token")
 
-            node_meta = self.sdk.get_wiki_node_metadata(
+            node_meta = self.sdk.wiki.get_node_metadata(
                 node_token=self.node_token,
-                user_access_token=self.user_access_token,
+                access_token=self.user_access_token,
             )
             self.app_token = node_meta.obj_token
 
@@ -83,9 +83,9 @@ class BitableParser:
 
         # 获取表格列表
         with pm.spinner("获取数据表列表..."):
-            bitables = self.sdk.get_bitable_table_list(
+            bitables = self.sdk.bitable.get_table_list(
                 app_token=self.app_token,
-                user_access_token=self.user_access_token,
+                access_token=self.user_access_token,
             )
 
         total_tables = len(bitables)
@@ -100,10 +100,10 @@ class BitableParser:
         # 解析每个数据表
         with pm.bar("解析数据表...", total_tables) as advance:
             for bitable in bitables:
-                table_data = self.sdk.get_bitable(
+                table_data = self.sdk.bitable.get_bitable(
                     app_token=self.app_token,
                     table_id=bitable.table_id,
-                    user_access_token=self.user_access_token,
+                    access_token=self.user_access_token,
                     table_mode=self.table_mode,
                 )
 

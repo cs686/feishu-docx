@@ -22,7 +22,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, Optional
 
-from feishu_docx.auth.oauth import OAuth2Authenticator
+from feishu_docx.auth import OAuth2Authenticator, TenantAuthenticator
 from feishu_docx.core.parsers.bitable import BitableParser
 from feishu_docx.core.parsers.document import DocumentParser
 from feishu_docx.core.parsers.sheet import SheetParser
@@ -89,21 +89,24 @@ class FeishuExporter:
             app_secret: Optional[str] = None,
             access_token: Optional[str] = None,
             is_lark: bool = False,
+            auth_mode: str = "tenant",
     ):
         """
         初始化导出器
 
         Args:
-            app_id: 飞书应用 App ID（OAuth 授权需要）
-            app_secret: 飞书应用 App Secret（OAuth 授权需要）
-            access_token: 用户访问凭证（手动传入，与 OAuth 二选一）
+            app_id: 飞书应用 App ID
+            app_secret: 飞书应用 App Secret
+            access_token: 访问凭证（手动传入）
             is_lark: 是否使用 Lark (海外版)
+            auth_mode: 认证模式 "tenant" (默认) 或 "oauth"
         """
         self.app_id = app_id
         self.app_secret = app_secret
         self.is_lark = is_lark
+        self.auth_mode = auth_mode
         self._access_token = access_token
-        self._authenticator: Optional[OAuth2Authenticator] = None
+        self._authenticator = None  # OAuth2Authenticator 或 TenantAuthenticator
         self._sdk: Optional[FeishuSDK] = None
 
     @classmethod
@@ -123,11 +126,19 @@ class FeishuExporter:
     def sdk(self) -> FeishuSDK:
         """获取 SDK 实例（懒加载）"""
         if self._sdk is None:
-            self._sdk = FeishuSDK()
+            # 根据 auth_mode 确定 token 类型
+            token_type = "tenant" if self.auth_mode == "tenant" else "user"
+            self._sdk = FeishuSDK(token_type=token_type)
         return self._sdk
 
     def get_access_token(self) -> str:
-        """获取访问凭证"""
+        """
+        获取访问凭证
+
+        根据 auth_mode 选择认证方式：
+        - tenant: 使用 tenant_access_token（默认，无需浏览器授权）
+        - oauth: 使用 user_access_token（需要浏览器授权）
+        """
         if self._access_token:
             return self._access_token
 
@@ -135,13 +146,24 @@ class FeishuExporter:
             raise ValueError("需要提供 access_token 或 (app_id + app_secret)")
 
         if self._authenticator is None:
-            self._authenticator = OAuth2Authenticator(
-                app_id=self.app_id,
-                app_secret=self.app_secret,
-                is_lark=self.is_lark,
-            )
+            if self.auth_mode == "tenant":
+                self._authenticator = TenantAuthenticator(
+                    app_id=self.app_id,
+                    app_secret=self.app_secret,
+                    is_lark=self.is_lark,
+                )
+            else:
+                self._authenticator = OAuth2Authenticator(
+                    app_id=self.app_id,
+                    app_secret=self.app_secret,
+                    is_lark=self.is_lark,
+                )
 
-        return self._authenticator.authenticate()
+        # 根据认证器类型调用不同方法
+        if isinstance(self._authenticator, TenantAuthenticator):
+            return self._authenticator.get_token()
+        else:
+            return self._authenticator.authenticate()
 
     def parse_url(self, url: str) -> DocumentInfo:
         """
@@ -328,7 +350,7 @@ class FeishuExporter:
 
         elif doc_info.doc_type == "wiki":
             # Wiki 需要先获取实际文档信息
-            node = self.sdk.get_wiki_node_metadata(doc_info.doc_id, access_token)
+            node = self.sdk.wiki.get_node_metadata(doc_info.doc_id, access_token)
             obj_type = node.obj_type  # "doc", "sheet", "bitable"
 
             if obj_type in ("doc", "docx"):
@@ -373,16 +395,16 @@ class FeishuExporter:
         """获取文档标题"""
         try:
             if doc_info.doc_type in ("doc", "docx"):
-                info = self.sdk.get_document_info(doc_info.doc_id, access_token)
+                info = self.sdk.docx.get_document_info(doc_info.doc_id, access_token)
                 return info.get("title", doc_info.doc_id)
             elif doc_info.doc_type == "sheet":
-                info = self.sdk.get_spreadsheet_info(doc_info.doc_id, access_token)
+                info = self.sdk.sheet.get_spreadsheet_info(doc_info.doc_id, access_token)
                 return info.get("title", doc_info.doc_id)
             elif doc_info.doc_type == "bitable":
-                info = self.sdk.get_bitable_info(doc_info.doc_id, access_token)
+                info = self.sdk.bitable.get_bitable_info(doc_info.doc_id, access_token)
                 return info.get("title", doc_info.doc_id)
             elif doc_info.doc_type == "wiki":
-                node = self.sdk.get_wiki_node_metadata(doc_info.doc_id, access_token)
+                node = self.sdk.wiki.get_node_metadata(doc_info.doc_id, access_token)
                 return node.title or doc_info.doc_id
         except Exception:  # noqa
             pass

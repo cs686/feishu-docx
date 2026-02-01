@@ -70,7 +70,7 @@ class FeishuWriter:
         return getattr(block, "children", []) or []
 
     def _ordered_blocks(self, document_id: str, user_access_token: str) -> List[Any]:
-        blocks = self.sdk.get_document_block_list(document_id, user_access_token)
+        blocks = self.sdk.docx.get_block_list(document_id, user_access_token)
         if not blocks:
             return []
 
@@ -169,10 +169,10 @@ class FeishuWriter:
             table_block_id = self._block_id(created_table_block)
             if table_block_id:
                 try:
-                    cell_blocks = self.sdk.get_block_children(
+                    cell_blocks = self.sdk.docx.get_block_children(
                         document_id=document_id,
                         block_id=table_block_id,
-                        user_access_token=user_access_token,
+                        access_token=user_access_token,
                     )
                     cell_ids = [self._block_id(b) for b in cell_blocks if self._block_id(b)]
                 except Exception as e:
@@ -192,11 +192,11 @@ class FeishuWriter:
             content_blocks = cell_contents[idx]
             if not content_blocks:
                 continue
-            self.sdk.create_blocks(
+            self.sdk.docx.create_blocks(
                 document_id=document_id,
                 block_id=cell_id,
                 children=content_blocks,
-                user_access_token=user_access_token,
+                access_token=user_access_token,
             )
             time.sleep(0.35)
 
@@ -222,7 +222,7 @@ class FeishuWriter:
             包含 document_id, url 的字典
         """
         # 创建空白文档
-        doc = self.sdk.create_document(title, user_access_token, folder_token)
+        doc = self.sdk.docx.create_document(title, user_access_token, folder_token)
         document_id = doc["document_id"]
 
         # 写入内容
@@ -287,7 +287,7 @@ class FeishuWriter:
             if local_images or has_tables:
                 blocks, image_paths = local_blocks, local_images
             else:
-                blocks = self.sdk.convert_markdown(md_content, user_access_token)
+                blocks = self.sdk.docx.convert_markdown(md_content, user_access_token)
         else:
             blocks, image_paths = self.converter.convert(md_content)
 
@@ -300,16 +300,16 @@ class FeishuWriter:
 
         if not append:
             try:
-                deleted = self.sdk.clear_document(document_id, user_access_token)
+                deleted = self.sdk.docx.clear_document(document_id, user_access_token)
                 console.print(f"  - 已清空文档内容（删除约 {deleted} 个块）")
             except Exception as clear_err:
                 console.print(f"[yellow]![/yellow] 清空文档失败，继续写入: {clear_err}")
 
-        created_blocks = self.sdk.create_blocks(
+        created_blocks = self.sdk.docx.create_blocks(
             document_id=document_id,
             block_id=document_id,
             children=blocks,
-            user_access_token=user_access_token,
+            access_token=user_access_token,
         )
 
         created_table_blocks = [
@@ -324,7 +324,7 @@ class FeishuWriter:
         resolved_table_blocks: Dict[str, Any] = {}
         if created_table_blocks:
             try:
-                all_blocks = self.sdk.get_document_block_list(document_id, user_access_token)
+                all_blocks = self.sdk.docx.get_block_list(document_id, user_access_token)
                 resolved_table_blocks = {
                     self._block_id(b): b
                     for b in all_blocks
@@ -377,29 +377,29 @@ class FeishuWriter:
                 if img_path.exists():
                     try:
                         console.print(f"  - 上传图片: [dim]{img_url}[/dim]")
-                        file_token = self.sdk.upload_image(
+                        file_token = self.sdk.media.upload_image(
                             str(img_path),
                             block_id,
                             document_id,
                             user_access_token,
                         )
-                        self.sdk.replace_image(
+                        self.sdk.docx.replace_image(
                             document_id=document_id,
                             block_id=block_id,
                             file_token=file_token,
-                            user_access_token=user_access_token,
+                            access_token=user_access_token,
                         )
                     except Exception as e:
                         console.print(f"[red]![/red] 上传图片失败 [dim]{img_url}[/dim]: {e}")
                         try:
-                            self.sdk.delete_block(document_id, block_id, user_access_token)
+                            self.sdk.docx.delete_block(document_id, block_id, user_access_token)
                             console.print(f"  - 已清理占位符 Block [dim]{block_id}[/dim]")
                         except Exception as delete_err:
                             console.print(f"  ! 清理占位符失败: {delete_err}")
                 else:
                     console.print(f"[yellow]![/yellow] 找不到本地图片: [dim]{img_url}[/dim]")
                     try:
-                        self.sdk.delete_block(document_id, block_id, user_access_token)
+                        self.sdk.docx.delete_block(document_id, block_id, user_access_token)
                     except Exception:
                         pass
 
@@ -430,11 +430,11 @@ class FeishuWriter:
                 "elements": [{"text_run": {"content": content}}]
             }
         }
-        return self.sdk.update_block(
+        return self.sdk.docx.update_block(
             document_id=document_id,
             block_id=block_id,
             update_body=update_body,
-            user_access_token=user_access_token,
+            access_token=user_access_token,
         )
 
     def append_markdown(

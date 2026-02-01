@@ -91,3 +91,5 @@ CODE_STYLE_MAP = {
     74: "solidity",
     75: "toml",
 }
+
+CODE_STYLE_MAP_REVERSE = {v: k for k, v in CODE_STYLE_MAP.items()}

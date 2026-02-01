@@ -49,6 +49,7 @@ class AppConfig:
     app_id: Optional[str] = None
     app_secret: Optional[str] = None
     is_lark: bool = False
+    auth_mode: str = "tenant"  # "tenant" (默认) 或 "oauth"
 
     # 配置文件路径
     _config_file: Path = None  # type: ignore
@@ -66,6 +67,7 @@ class AppConfig:
                 config.app_id = data.get("app_id")
                 config.app_secret = data.get("app_secret")
                 config.is_lark = data.get("is_lark", False)
+                config.auth_mode = data.get("auth_mode", "tenant")
             except Exception:
                 pass  # 配置文件损坏，使用默认值
         return config
@@ -76,6 +78,7 @@ class AppConfig:
             "app_id": self.app_id,
             "app_secret": self.app_secret,
             "is_lark": self.is_lark,
+            "auth_mode": self.auth_mode,
         }
         self._config_file.write_text(
             json.dumps(data, indent=2, ensure_ascii=False),

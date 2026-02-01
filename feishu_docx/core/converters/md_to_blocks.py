@@ -26,6 +26,8 @@ import mistune
 from mistune.plugins.math import math as math_plugin
 from mistune.plugins.table import table as table_plugin
 
+from feishu_docx.schema.code_style import CODE_STYLE_MAP_REVERSE
+
 
 class MarkdownToBlocks:
     """
@@ -57,30 +59,7 @@ class MarkdownToBlocks:
     BLOCK_TYPE_TABLE_CELL = 32
 
     # 代码语言映射
-    LANGUAGE_MAP = {
-        "python": 49,
-        "javascript": 22,
-        "typescript": 75,
-        "java": 21,
-        "go": 13,
-        "rust": 56,
-        "c": 5,
-        "cpp": 7,
-        "csharp": 8,
-        "ruby": 55,
-        "php": 46,
-        "swift": 68,
-        "kotlin": 25,
-        "sql": 64,
-        "shell": 61,
-        "bash": 3,
-        "json": 23,
-        "yaml": 81,
-        "xml": 79,
-        "html": 17,
-        "css": 9,
-        "markdown": 34,
-    }
+    LANGUAGE_MAP = CODE_STYLE_MAP_REVERSE
 
     def __init__(self):
         """初始化转换器"""
