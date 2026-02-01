@@ -259,7 +259,7 @@ def export_wiki_space(
             console.print(f"[dim]  节点 Token: {node_token}[/dim]")
 
             # 获取节点信息并提取 space_id
-            node_info = exporter.sdk.wiki.get_wiki_node_by_token(
+            node_info = exporter.sdk.wiki.get_node_by_token(
                 token=node_token,
                 access_token=access_token,
             )
@@ -281,95 +281,22 @@ def export_wiki_space(
         # 创建输出目录
         output.mkdir(parents=True, exist_ok=True)
 
-        exported_count = 0
-        failed_count = 0
+        console.print("[yellow]> 开始批量导出...[/yellow]")
 
-        # 确定域名
-        domain = "larksuite.com" if lark else "my.feishu.cn"
-
-        # 递归遍历节点
-        def traverse_nodes(parent_token: Optional[str] = None, depth: int = 0, current_path: Path = output):
-            nonlocal exported_count, failed_count
-
-            if depth > max_depth:
-                return
-
-            console.print(f"[yellow]> 正在遍历第 {depth} 层: {current_path.name}...[/yellow]")
-
-            # 获取子节点列表
-            nodes = exporter.sdk.wiki.get_all_wiki_space_nodes(
-                space_id=space_id,
-                access_token=access_token,
-                parent_node_token=parent_token,
-            )
-
-            if not nodes:
-                return
-
-            for node in nodes:
-                node_token = node.get("node_token")
-                obj_type = node.get("obj_type")
-                obj_token = node.get("obj_token")
-                title = node.get("title", "untitled")
-                has_child = node.get("has_child", False)
-
-                # 清理文件名中的非法字符
-                safe_title = title.replace("/", "_").replace("\\", "_")
-
-                # 判断是否为文档类型
-                if obj_type in ["doc", "docx", "sheet", "bitable"]:
-                    try:
-                        # 构建文档 URL
-                        url = f"https://{domain}/{obj_type}/{obj_token}"
-
-                        # 如果有子节点，创建子目录并导出
-                        if has_child:
-                            # 创建以文档名命名的子目录
-                            doc_dir = current_path / safe_title
-                            doc_dir.mkdir(parents=True, exist_ok=True)
-
-                            # 导出文档到子目录
-                            file_path = exporter.export(
-                                url=url,
-                                output_dir=doc_dir,
-                                filename=safe_title,
-                                silent=True,
-                            )
-                            exported_count += 1
-                            console.print(f"[green]✓ 已导出:[/green] {safe_title} → {doc_dir.relative_to(output)}")
-
-                            # 递归处理子节点
-                            traverse_nodes(node_token, depth + 1, doc_dir)
-                        else:
-                            # 无子节点，直接导出到当前目录
-                            file_path = exporter.export(
-                                url=url,
-                                output_dir=current_path,
-                                filename=safe_title,
-                                silent=True,
-                            )
-                            exported_count += 1
-                            console.print(f"[green]✓ 已导出:[/green] {safe_title}")
-                    except Exception as e:
-                        failed_count += 1
-                        console.print(f"[red]✗ 导出失败:[/red] {safe_title} - {e}")
-                else:
-                    # 非文档类型（如文件夹），只递归处理子节点
-                    if has_child:
-                        # 为文件夹创建子目录
-                        folder_dir = current_path / safe_title
-                        folder_dir.mkdir(parents=True, exist_ok=True)
-                        console.print(f"[cyan]📁 文件夹:[/cyan] {safe_title}")
-                        traverse_nodes(node_token, depth + 1, folder_dir)
-
-        # 开始遍历
-        traverse_nodes(parent_node)
+        # 调用 Exporter 的 export_wiki_space 方法
+        result = exporter.export_wiki_space(
+            space_id=space_id,
+            output_dir=output,
+            max_depth=max_depth,
+            parent_node_token=parent_node,
+            silent=False,
+        )
 
         # 输出统计
         console.print(Panel(
             f"✅ 导出完成!\n\n"
-            f"[green]成功:[/green] {exported_count} 个文档\n"
-            f"[red]失败:[/red] {failed_count} 个文档\n"
+            f"[green]成功:[/green] {result['exported']} 个文档\n"
+            f"[red]失败:[/red] {result['failed']} 个文档\n"
             f"[blue]输出目录:[/blue] {output}",
             border_style="green",
         ))

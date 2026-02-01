@@ -78,7 +78,7 @@ class WikiAPI(SubModule):
 
         if not response.success():
             self._log_error("wiki.v2.spaces.nodes.list", response)
-            return None
+            raise RuntimeError("获取知识空间子节点列表失败")
 
         try:
             content = response.raw.content.decode("utf-8")
@@ -86,7 +86,7 @@ class WikiAPI(SubModule):
             return resp_json.get("data", {})
         except Exception as e:
             console.print(f"[red]解析知识空间节点列表失败: {e}[/red]")
-            return None
+            raise RuntimeError("解析知识空间节点列表失败")
 
     def get_all_space_nodes(
             self,
@@ -139,7 +139,7 @@ class WikiAPI(SubModule):
 
         if not response.success():
             self._log_error("wiki.v2.spaces.get_node", response)
-            return None
+            raise RuntimeError("获取知识空间节点信息失败")
 
         try:
             content = response.raw.content.decode("utf-8")
@@ -147,4 +147,42 @@ class WikiAPI(SubModule):
             return resp_json.get("data", {}).get("node", {})
         except Exception as e:
             console.print(f"[red]解析知识空间节点信息失败: {e}[/red]")
-            return None
+            raise RuntimeError("解析知识空间节点信息失败")
+
+    def get_space_info(
+            self,
+            space_id: str,
+            access_token: str,
+    ) -> dict:
+        """
+        获取知识空间信息
+
+        Args:
+            space_id: 知识空间 ID
+            access_token: 访问凭证
+
+        Returns:
+            dict: 包含 name, description 等字段
+        """
+        request = (
+            lark.BaseRequest.builder()
+            .http_method(lark.HttpMethod.GET)
+            .uri(f"/open-apis/wiki/v2/spaces/{space_id}")
+            .token_types({self._get_token_type()})
+            .build()
+        )
+
+        option = self._build_option(access_token)
+        response: BaseResponse = self.client.request(request, option)
+
+        if not response.success():
+            self._log_error("wiki.v2.spaces.get", response)
+            raise RuntimeError("获取知识空间信息失败")
+
+        try:
+            content = response.raw.content.decode("utf-8")
+            resp_json = json.loads(content)
+            return resp_json.get("data", {}).get("space", {})
+        except Exception as e:
+            console.print(f"[red]解析知识空间信息失败: {e}[/red]")
+            raise RuntimeError("解析知识空间信息失败")

@@ -80,7 +80,6 @@ class SDKCore:
             f"  response: {formatted}"
         )
 
-
 class SubModule:
     """
     子模块基类

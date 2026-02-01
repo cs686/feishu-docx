@@ -417,3 +417,169 @@ class FeishuExporter:
         name = re.sub(r'[<>:"/\\|?*]', '_', name)
         name = name.strip('. ')
         return name or "untitled"
+
+    # ==========================================================================
+    # 知识空间批量导出
+    # ==========================================================================
+
+    def export_wiki_space(
+            self,
+            space_id: str,
+            output_dir: Path | str,
+            max_depth: int = 3,
+            parent_node_token: Optional[str] = None,
+            silent: bool = False,
+            progress_callback=None,
+            table_format: Literal["html", "md"] = "md",
+            with_block_ids: bool = False,
+            export_board_metadata: bool = False,
+
+    ) -> dict:
+        """
+        批量导出知识空间下的所有文档
+
+        Args:
+            space_id: 知识空间 ID
+            output_dir: 输出目录
+            max_depth: 最大遍历深度（默认 3）
+            parent_node_token: 可选，从指定父节点开始导出
+            silent: 是否静默模式
+            progress_callback: 进度回调函数 (exported, failed, current_title)
+            table_format: 表格输出格式
+            with_block_ids: 是否嵌入 Block ID 注释
+            export_board_metadata: 是否导出画板节点元数据
+
+        Returns:
+            dict: {"exported": int, "failed": int, "paths": list[Path]}
+
+        使用示例:
+
+            exporter = FeishuExporter(app_id="xxx", app_secret="xxx")
+            result = exporter.export_wiki_space(
+                space_id="xxx",
+                output_dir="./wiki_backup",
+                max_depth=3,
+            )
+            print(f"导出 {result['exported']} 个文档")
+        """
+        output_dir = Path(output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        access_token = self.get_access_token()
+        domain = "larksuite.com" if self.is_lark else "my.feishu.cn"
+
+        # 获取知识空间信息
+        try:
+            space_info = self.sdk.wiki.get_space_info(space_id, access_token)
+            space_name = self._sanitize_filename(space_info.get("name", space_id))
+        except Exception:
+            space_name = space_id
+
+        # 在 output_dir 下创建以 space_name 命名的目录
+        space_dir = output_dir / space_name
+        space_dir.mkdir(parents=True, exist_ok=True)
+
+        if not silent:
+            console.print(f"[blue]> 知识空间:[/blue] {space_name}")
+            console.print(f"[blue]> 输出目录:[/blue] {space_dir}")
+
+        result = {"exported": 0, "failed": 0, "paths": [], "space_name": space_name, "space_dir": space_dir}
+
+        def traverse(parent_token: Optional[str], depth: int, current_path: Path):
+            """递归遍历节点"""
+            if depth > max_depth:
+                return
+
+            # 获取子节点列表
+            nodes = self.sdk.wiki.get_all_space_nodes(
+                space_id=space_id,
+                access_token=access_token,
+                parent_node_token=parent_token,
+            )
+
+            if not nodes:
+                return
+
+            for node in nodes:
+                node_token = node.get("node_token")
+                obj_type = node.get("obj_type")
+                obj_token = node.get("obj_token")
+                title = node.get("title", "untitled")
+                has_child = node.get("has_child", False)
+
+                # 清理文件名中的非法字符
+                safe_title = self._sanitize_filename(title)
+
+                # 判断是否为文档类型
+                if obj_type in ["doc", "docx", "sheet", "bitable"]:
+                    # 构建文档 URL
+                    url = f"https://{domain}/{obj_type}/{obj_token}"
+
+                    if has_child:
+                        # 有子节点：创建子目录并导出
+                        doc_dir = current_path / safe_title
+                        doc_dir.mkdir(parents=True, exist_ok=True)
+
+                        try:
+                            path = self.export(
+                                url=url,
+                                output_dir=doc_dir,
+                                filename=safe_title,
+                                silent=True,
+                            )
+                            result["exported"] += 1
+                            result["paths"].append(path)
+
+                            if not silent:
+                                console.print(f"[green]✓[/green] {safe_title}")
+
+                            if progress_callback:
+                                progress_callback(result["exported"], result["failed"], safe_title)
+
+                        except Exception as e:
+                            result["failed"] += 1
+                            if not silent:
+                                console.print(f"[red]✗[/red] {safe_title}: {e}")
+
+                        # 递归处理子节点
+                        traverse(node_token, depth + 1, doc_dir)
+
+                    else:
+                        # 无子节点：直接导出到当前目录
+                        try:
+                            path = self.export(
+                                url=url,
+                                output_dir=current_path,
+                                filename=safe_title,
+                                table_format=table_format,
+                                silent=silent,
+                                with_block_ids=with_block_ids,
+                                export_board_metadata=export_board_metadata,
+                            )
+                            result["exported"] += 1
+                            result["paths"].append(path)
+
+                            if not silent:
+                                console.print(f"[green]✓[/green] {safe_title}")
+
+                            if progress_callback:
+                                progress_callback(result["exported"], result["failed"], safe_title)
+
+                        except Exception as e:
+                            result["failed"] += 1
+                            if not silent:
+                                console.print(f"[red]✗[/red] {safe_title}: {e}")
+
+                elif has_child:
+                    # 纯目录节点（非文档但有子节点）
+                    sub_dir = current_path / safe_title
+                    sub_dir.mkdir(parents=True, exist_ok=True)
+
+                    if not silent:
+                        console.print(f"[dim]📁 {safe_title}/[/dim]")
+
+                    traverse(node_token, depth + 1, sub_dir)
+
+        # 开始遍历
+        traverse(parent_node_token, 0, space_dir)
+
+        return result
