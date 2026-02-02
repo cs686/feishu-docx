@@ -43,12 +43,13 @@ pip install feishu-docx
 # Configure credentials (one-time)
 feishu-docx config set --app-id YOUR_APP_ID --app-secret YOUR_APP_SECRET
 
-# Authorize
-feishu-docx auth
-
-# Export!
+# Export! (auto-obtains tenant_access_token, no OAuth needed)
 feishu-docx export "https://my.feishu.cn/wiki/KUIJwaBuGiwaSIkkKJ6cfVY8nSg"
+
+# Optional: Use OAuth mode for user-level permissions
+# feishu-docx config set --auth-mode oauth && feishu-docx auth
 ```
+
 
 ---
 
@@ -77,7 +78,7 @@ Copy this Skill to your agent project, and Claude can:
 | 🗂️ Wiki Batch Export   | Recursively export entire wiki space with hierarchy |
 | 🗄️ Database Schema     | Export APaaS database structure to Markdown     |
 | 🖼️ Auto Image Download | Images saved locally with relative paths        |
-| 🔐 OAuth 2.0            | Browser-based auth, token persistence           |
+| 🔐 Auth                 | Auto tenant_access_token (recommended) or OAuth 2.0 |
 | 🎨 Beautiful TUI        | Terminal UI powered by Textual                  |
 
 
@@ -125,13 +126,22 @@ feishu-docx tui
 ```python
 from feishu_docx import FeishuExporter
 
-# OAuth
+# Initialize (uses tenant_access_token by default)
 exporter = FeishuExporter(app_id="xxx", app_secret="xxx")
+
+# Export single document
 path = exporter.export("https://xxx.feishu.cn/wiki/xxx", "./output")
 
-# Or use token directly
-exporter = FeishuExporter.from_token("user_access_token")
+# Get content without saving
 content = exporter.export_content("https://xxx.feishu.cn/docx/xxx")
+
+# Batch export entire wiki space
+result = exporter.export_wiki_space(
+    space_id="xxx",
+    output_dir="./wiki_backup",
+    max_depth=3,
+)
+print(f"Exported {result['exported']} docs to {result['space_dir']}")
 ```
 
 ---
@@ -159,6 +169,39 @@ content = exporter.export_content("https://xxx.feishu.cn/docx/xxx")
 feishu-docx config set --app-id cli_xxx --app-secret xxx
 ```
 
+### 🔑 Authentication Modes
+
+| | **Tenant Mode** (Default) | **OAuth Mode** |
+|---|---|---|
+| **Token Type** | `tenant_access_token` | `user_access_token` |
+| **Setup** | Configure permissions in [Open Platform](https://open.feishu.cn/app) | Request permissions during OAuth flow |
+| **User Interaction** | ✅ Automatic, no user action needed | ❌ Requires browser authorization |
+| **Access Scope** | Documents the **app** has permission to | Documents the **user** has permission to |
+| **Best For** | Server automation, AI Agents | Accessing user's private documents |
+
+**Tenant Mode (Recommended for most cases):**
+```bash
+# One-time setup
+feishu-docx config set --app-id xxx --app-secret xxx
+
+# Export (auto-obtains tenant_access_token)
+feishu-docx export "https://xxx.feishu.cn/docx/xxx"
+```
+
+> ⚠️ Tenant mode requires pre-configuring document permissions in [Feishu Open Platform](https://open.feishu.cn/app) → App Permissions.
+
+**OAuth Mode (For user-level access):**
+```bash
+# One-time setup
+feishu-docx config set --app-id xxx --app-secret xxx --auth-mode oauth
+feishu-docx auth  # Opens browser for authorization
+
+# Export (uses cached user_access_token)
+feishu-docx export "https://xxx.feishu.cn/docx/xxx"
+```
+
+> 💡 OAuth mode requests permissions during the authorization flow, no pre-configuration needed.
+
 ---
 
 ## 📖 Commands
@@ -168,6 +211,9 @@ feishu-docx config set --app-id cli_xxx --app-secret xxx
 | `export <URL>`                     | Export single document to Markdown      |
 | `export-wiki-space <space_id>`     | Batch export wiki space with hierarchy  |
 | `export-workspace-schema <id>`     | Export APaaS database schema            |
+| `create <title>`                   | Create new Feishu document              |
+| `write <URL>`                      | Append Markdown content to document     |
+| `update <URL>`                     | Update specific block in document       |
 | `auth`                             | OAuth authorization                     |
 | `tui`                              | Launch TUI interface                    |
 | `config set`                       | Set credentials                         |
@@ -182,9 +228,9 @@ feishu-docx config set --app-id cli_xxx --app-secret xxx
 - [x] OAuth 2.0 + Token refresh
 - [x] TUI interface
 - [x] Claude Skills support
-- [ ] Batch export entire wiki space
+- [x] Batch export entire wiki space
 - [ ] MCP Server support
-- [ ] Write to Feishu (create/update docs)
+- [x] Write to Feishu (create/update docs)
 
 ---
 

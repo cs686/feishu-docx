@@ -5,6 +5,48 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2026-02-01
+
+### 🚀 Major Refactoring
+
+#### SDK 架构重构
+- **组合模式重构** - SDK 从单体类拆分为 7 个职责清晰的子模块：
+  - `sdk.docx` - 云文档操作
+  - `sdk.sheet` - 电子表格操作
+  - `sdk.bitable` - 多维表格操作
+  - `sdk.wiki` - 知识库操作
+  - `sdk.media` - 媒体资源操作
+  - `sdk.contact` - 联系人操作
+  - `sdk.apaas` - APaaS 数据库操作
+- **懒加载机制** - 子模块按需初始化，提升启动性能
+- **完全向后兼容** - 旧 API 保持可用
+
+#### CLI 模块拆分
+- **模块化重构** - 1110 行 `main.py` 拆分为 7 个独立模块：
+  - `main.py` - 入口，命令注册
+  - `common.py` - 共享工具函数
+  - `cmd_export.py` - 导出命令
+  - `cmd_write.py` - 写入命令
+  - `cmd_apaas.py` - APaaS 命令
+  - `cmd_auth.py` - 认证命令
+  - `cmd_config.py` - 配置命令
+  - `cmd_tui.py` - TUI 命令
+
+### Added
+- **知识空间批量导出 API** - `FeishuExporter.export_wiki_space()` 方法，支持 Python API 调用
+- `WikiAPI.get_space_info()` - 获取知识空间名称
+- 导出目录自动使用 space_name 命名子目录
+- 所有 CLI 命令新增 `--auth-mode` 参数，支持命令行指定认证模式
+- 新增环境变量 `FEISHU_AUTH_MODE` 支持
+- `get_credentials()` 三参数独立优先级：命令行 > 环境变量 > 配置文件
+
+### Changed
+- 认证逻辑统一化，`app_id`、`app_secret`、`auth_mode` 遵循相同优先级规则
+- Parser 使用组合模式 SDK，代码更简洁
+- Wiki SDK 方法失败时抛出异常而不是返回 None
+
+---
+
 ## [0.1.5] - 2026-01-29
 
 ### Changed

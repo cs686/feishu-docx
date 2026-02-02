@@ -20,7 +20,7 @@ warnings.filterwarnings("ignore", category=UserWarning)
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 warnings.filterwarnings("ignore", message=".*pkg_resources.*")
 
-__version__ = "0.1.3"
+__version__ = "0.2.0"
 
 from feishu_docx.core.exporter import FeishuExporter
 

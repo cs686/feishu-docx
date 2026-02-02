@@ -42,11 +42,11 @@ pip install feishu-docx
 # 配置凭证（只需一次）
 feishu-docx config set --app-id YOUR_APP_ID --app-secret YOUR_APP_SECRET
 
-# 授权
-feishu-docx auth
-
-# 导出！
+# 导出！（自动获取 tenant_access_token，无需 OAuth 授权）
 feishu-docx export "https://my.feishu.cn/wiki/KUIJwaBuGiwaSIkkKJ6cfVY8nSg"
+
+# 可选：使用 OAuth 模式获取用户级权限
+# feishu-docx config set --auth-mode oauth && feishu-docx auth
 ```
 
 ---
@@ -76,7 +76,7 @@ feishu-docx export "https://my.feishu.cn/wiki/KUIJwaBuGiwaSIkkKJ6cfVY8nSg"
 | 🗂️ Wiki 批量导出 | 递归导出整个知识空间，保持目录层级结构        |
 | 🗄️ 数据库结构导出  | APaaS 数据库表结构导出为 Markdown   |
 | 🖼️ 自动下载图片   | 图片保存到本地，Markdown 相对路径引用    |
-| 🔐 OAuth 2.0 | 自动打开浏览器授权，Token 持久化缓存      |
+| 🔐 认证方式     | 自动 tenant_access_token（推荐）/ OAuth 2.0 |
 | 🎨 精美 TUI    | 基于 Textual 的终端图形界面         |
 
 ### ✅ 支持的Block
@@ -122,13 +122,22 @@ feishu-docx tui
 ```python
 from feishu_docx import FeishuExporter
 
-# OAuth 授权
+# 初始化（使用 tenant_access_token，推荐）
 exporter = FeishuExporter(app_id="xxx", app_secret="xxx")
+
+# 导出单个文档
 path = exporter.export("https://xxx.feishu.cn/wiki/xxx", "./output")
 
-# 或直接使用 Token
-exporter = FeishuExporter.from_token("user_access_token")
+# 获取文档内容（不保存文件）
 content = exporter.export_content("https://xxx.feishu.cn/docx/xxx")
+
+# 批量导出整个知识空间
+result = exporter.export_wiki_space(
+    space_id="xxx",
+    output_dir="./wiki_backup",
+    max_depth=3,
+)
+print(f"导出 {result['exported']} 个文档到 {result['space_dir']}")
 ```
 
 ---
@@ -156,6 +165,39 @@ content = exporter.export_content("https://xxx.feishu.cn/docx/xxx")
 feishu-docx config set --app-id cli_xxx --app-secret xxx
 ```
 
+### 🔑 认证模式
+
+| | **Tenant 模式** (默认) | **OAuth 模式** |
+|---|---|---|
+| **Token 类型** | `tenant_access_token` | `user_access_token` |
+| **配置方式** | 在[开放平台](https://open.feishu.cn/app)预配置权限 | OAuth 流程中动态申请权限 |
+| **用户操作** | ✅ 自动获取，无需用户操作 | ❌ 需要在浏览器中授权 |
+| **访问范围** | **应用**有权限的文档 | **用户**有权限的文档 |
+| **适用场景** | 服务端自动化、AI Agent | 访问用户私有文档 |
+
+**Tenant 模式（推荐）：**
+```bash
+# 一次性配置
+feishu-docx config set --app-id xxx --app-secret xxx
+
+# 导出（自动获取 tenant_access_token）
+feishu-docx export "https://xxx.feishu.cn/docx/xxx"
+```
+
+> ⚠️ Tenant 模式需要在[飞书开放平台](https://open.feishu.cn/app) → 应用权限中预先配置文档权限。
+
+**OAuth 模式（访问用户文档）：**
+```bash
+# 一次性配置
+feishu-docx config set --app-id xxx --app-secret xxx --auth-mode oauth
+feishu-docx auth  # 在浏览器中完成授权
+
+# 导出（使用缓存的 user_access_token）
+feishu-docx export "https://xxx.feishu.cn/docx/xxx"
+```
+
+> 💡 OAuth 模式在授权时动态申请权限，无需预先配置。
+
 ---
 
 ## 📖 命令参考
@@ -165,6 +207,9 @@ feishu-docx config set --app-id cli_xxx --app-secret xxx
 | `export <URL>`                  | 导出单个文档为 Markdown        |
 | `export-wiki-space <space_id>`  | 批量导出知识空间（保持目录层级）        |
 | `export-workspace-schema <id>`  | 导出 APaaS 数据库结构         |
+| `create <title>`                | 创建飞书文档                  |
+| `write <URL>`                   | 向文档追加 Markdown 内容      |
+| `update <URL>`                  | 更新文档中指定 Block          |
 | `auth`                          | OAuth 授权                |
 | `tui`                           | TUI 交互界面                |
 | `config set`                    | 设置凭证                    |
@@ -190,9 +235,9 @@ pytest tests/ -v
 - [x] OAuth 2.0 + Token 刷新
 - [x] TUI 终端界面
 - [x] Claude Skills 支持
-- [ ] 批量导出整个知识空间
+- [x] 批量导出整个知识空间
 - [ ] MCP Server 支持
-- [ ] 写入飞书（创建/更新文档）
+- [x] 写入飞书（创建/更新文档）
 
 ---
 
