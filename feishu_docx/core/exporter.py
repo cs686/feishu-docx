@@ -36,11 +36,10 @@ console = get_console()
 # URL 解析结果
 # ==============================================================================
 @dataclass
-class DocumentInfo:
+class NodeInfo:
     """文档信息"""
-    doc_type: str  # "docx", "sheet", "bitable", "wiki"
-    doc_id: str  # 文档 ID
-    wiki_token: Optional[str] = None  # Wiki 节点 token
+    node_type: str  # "docx", "sheet", "bitable", "wiki"
+    node_token: str  # 文档 ID
 
 
 # ==============================================================================
@@ -165,7 +164,7 @@ class FeishuExporter:
         else:
             return self._authenticator.authenticate()
 
-    def parse_url(self, url: str) -> DocumentInfo:
+    def parse_url(self, url: str) -> NodeInfo:
         """
         解析飞书文档 URL
 
@@ -173,7 +172,7 @@ class FeishuExporter:
             url: 飞书文档 URL
 
         Returns:
-            DocumentInfo 文档信息
+            NodeInfo 文档信息
 
         Raises:
             ValueError: 不支持的 URL 格式
@@ -183,7 +182,7 @@ class FeishuExporter:
             if match:
                 # 支持多个域名，ID 可能在 group(1) 或 group(2)
                 doc_id = match.group(1) or match.group(2)
-                return DocumentInfo(doc_type=doc_type, doc_id=doc_id)
+                return NodeInfo(node_type=doc_type, node_token=doc_id)
 
         raise ValueError(f"不支持的 URL 格式: {url}")
 
@@ -221,8 +220,8 @@ class FeishuExporter:
         output_filename = filename or self._sanitize_filename(doc_title)
 
         if not silent:
-            console.print(f"[blue]> 文档类型:[/blue] {doc_info.doc_type}")
-            console.print(f"[blue]> 文档 ID:[/blue]  {doc_info.doc_id}")
+            console.print(f"[blue]> 文档类型:[/blue] {doc_info.node_type}")
+            console.print(f"[blue]> 文档 ID:[/blue]  {doc_info.node_token}")
             console.print(f"[blue]> 文档标题:[/blue] {doc_title}")
 
         # 2. 准备输出目录和资源目录
@@ -283,7 +282,7 @@ class FeishuExporter:
 
     def _parse_document(
             self,
-            doc_info: DocumentInfo,
+            doc_info: NodeInfo,
             access_token: str,
             table_format: Literal["html", "md"],
             assets_dir: Optional[Path],
@@ -312,9 +311,9 @@ class FeishuExporter:
         if assets_dir:
             self.sdk.temp_dir = assets_dir
 
-        if doc_info.doc_type in ("doc", "docx"):
+        if doc_info.node_type in ("doc", "docx"):
             parser = DocumentParser(
-                document_id=doc_info.doc_id,
+                document_id=doc_info.node_token,
                 user_access_token=access_token,
                 table_mode=table_format,
                 sdk=self.sdk,
@@ -326,9 +325,9 @@ class FeishuExporter:
             )
             return parser.parse()
 
-        elif doc_info.doc_type == "sheet":
+        elif doc_info.node_type == "sheet":
             parser = SheetParser(
-                spreadsheet_token=doc_info.doc_id,
+                spreadsheet_token=doc_info.node_token,
                 user_access_token=access_token,
                 table_mode=table_format,
                 sdk=self.sdk,
@@ -337,9 +336,9 @@ class FeishuExporter:
             )
             return parser.parse()
 
-        elif doc_info.doc_type == "bitable":
+        elif doc_info.node_type == "bitable":
             parser = BitableParser(
-                app_token=doc_info.doc_id,
+                app_token=doc_info.node_token,
                 user_access_token=access_token,
                 table_mode=table_format,
                 sdk=self.sdk,
@@ -348,9 +347,9 @@ class FeishuExporter:
             )
             return parser.parse()
 
-        elif doc_info.doc_type == "wiki":
+        elif doc_info.node_type == "wiki":
             # Wiki 需要先获取实际文档信息
-            node = self.sdk.wiki.get_node_metadata(doc_info.doc_id, access_token)
+            node = self.sdk.wiki.get_node_metadata(doc_info.node_token, access_token)
             obj_type = node.obj_type  # "doc", "sheet", "bitable"
 
             if obj_type in ("doc", "docx"):
@@ -389,26 +388,26 @@ class FeishuExporter:
                 raise ValueError(f"不支持的 Wiki 节点类型: {obj_type}")
 
         else:
-            raise ValueError(f"不支持的文档类型: {doc_info.doc_type}")
+            raise ValueError(f"不支持的文档类型: {doc_info.node_type}")
 
-    def _get_document_title(self, doc_info: DocumentInfo, access_token: str) -> str:
+    def _get_document_title(self, doc_info: NodeInfo, access_token: str) -> str:
         """获取文档标题"""
         try:
-            if doc_info.doc_type in ("doc", "docx"):
-                info = self.sdk.docx.get_document_info(doc_info.doc_id, access_token)
-                return info.get("title", doc_info.doc_id)
-            elif doc_info.doc_type == "sheet":
-                info = self.sdk.sheet.get_spreadsheet_info(doc_info.doc_id, access_token)
-                return info.get("title", doc_info.doc_id)
-            elif doc_info.doc_type == "bitable":
-                info = self.sdk.bitable.get_bitable_info(doc_info.doc_id, access_token)
-                return info.get("title", doc_info.doc_id)
-            elif doc_info.doc_type == "wiki":
-                node = self.sdk.wiki.get_node_metadata(doc_info.doc_id, access_token)
-                return node.title or doc_info.doc_id
+            if doc_info.node_type in ("doc", "docx"):
+                info = self.sdk.docx.get_document_info(doc_info.node_token, access_token)
+                return info.get("title", doc_info.node_token)
+            elif doc_info.node_type == "sheet":
+                info = self.sdk.sheet.get_spreadsheet_info(doc_info.node_token, access_token)
+                return info.get("title", doc_info.node_token)
+            elif doc_info.node_type == "bitable":
+                info = self.sdk.bitable.get_bitable_info(doc_info.node_token, access_token)
+                return info.get("title", doc_info.node_token)
+            elif doc_info.node_type == "wiki":
+                node = self.sdk.wiki.get_node_metadata(doc_info.node_token, access_token)
+                return node.title or doc_info.node_token
         except Exception:  # noqa
             pass
-        return doc_info.doc_id
+        return doc_info.node_token
 
     @staticmethod
     def _sanitize_filename(name: str) -> str:
@@ -424,7 +423,7 @@ class FeishuExporter:
 
     def export_wiki_space(
             self,
-            space_id: str,
+            space_id_or_url: str,
             output_dir: Path | str,
             max_depth: int = 3,
             parent_node_token: Optional[str] = None,
@@ -439,7 +438,7 @@ class FeishuExporter:
         批量导出知识空间下的所有文档
 
         Args:
-            space_id: 知识空间 ID
+            space_id_or_url: 知识空间 ID 或 Wiki URL（自动解析，只导出输入URL子节点下的文档）
             output_dir: 输出目录
             max_depth: 最大遍历深度（默认 3）
             parent_node_token: 可选，从指定父节点开始导出
@@ -467,14 +466,48 @@ class FeishuExporter:
         access_token = self.get_access_token()
         domain = "larksuite.com" if self.is_lark else "my.feishu.cn"
 
+        # 解析输入：支持 URL 或 space_id
+        space_id = space_id_or_url
+        save_dir = None
+        parent_node_token = parent_node_token
+        if space_id_or_url.startswith(("http://", "https://")):
+            # 从 URL 解析 space_id
+            try:
+                doc_info = self.parse_url(space_id_or_url)
+            except ValueError as e:
+                raise ValueError(f"URL 格式错误: {e}")
+
+            if doc_info.node_type != "wiki":
+                raise ValueError(f"输入的不是 Wiki 链接（类型: {doc_info.node_type}）")
+
+            if not parent_node_token:
+                # 从 URL 中解析 parent_node_token
+                parent_node_token = doc_info.node_token
+
+            node_info = self.sdk.wiki.get_node_by_token(
+                token=doc_info.node_token,
+                access_token=access_token,
+            )
+
+            if not node_info or not node_info.space_id:
+                raise ValueError("无法获取知识空间信息")
+
+            space_id = node_info.space_id
+            save_dir = node_info.title or node_info.node_token
+            if not silent:
+                console.print(f"[green]✓ 从 URL 解析得到 space_id:[/green] {space_id}")
+
         # 获取知识空间信息
         try:
             space_info = self.sdk.wiki.get_space_info(space_id, access_token)
-            space_name = self._sanitize_filename(space_info.get("name", space_id))
+            space_name = space_info.name if space_info.name else space_id
         except Exception:
             space_name = space_id
 
         # 在 output_dir 下创建以 space_name 命名的目录
+        if save_dir:
+            space_name = save_dir
+        space_name = self._sanitize_filename(space_name)
         space_dir = output_dir / space_name
         space_dir.mkdir(parents=True, exist_ok=True)
 
@@ -500,19 +533,23 @@ class FeishuExporter:
                 return
 
             for node in nodes:
-                node_token = node.get("node_token")
-                obj_type = node.get("obj_type")
-                obj_token = node.get("obj_token")
-                title = node.get("title", "untitled")
-                has_child = node.get("has_child", False)
+                node_token = node.node_token
+                obj_type = node.obj_type
+                obj_token = node.obj_token
+                title = node.title or node_token
+                has_child = node.has_child
 
                 # 清理文件名中的非法字符
                 safe_title = self._sanitize_filename(title)
 
+
                 # 判断是否为文档类型
-                if obj_type in ["doc", "docx", "sheet", "bitable"]:
+                if obj_type in ["doc", "docx", "sheet" , "bitable"]:
                     # 构建文档 URL
-                    url = f"https://{domain}/{obj_type}/{obj_token}"
+                    if obj_type == "bitable":
+                        url = f"https://{domain}/wiki/{node_token}"
+                    else:
+                        url = f"https://{domain}/{obj_type}/{obj_token}"
 
                     if has_child:
                         # 有子节点：创建子目录并导出

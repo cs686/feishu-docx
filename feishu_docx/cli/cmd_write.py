@@ -177,15 +177,15 @@ def write(
 
         # 解析 URL 获取 document_id
         doc_info = exporter.parse_url(url)
-        if doc_info.doc_type != "docx":
-            console.print(f"[red]❌ 只支持 docx 类型文档，当前类型: {doc_info.doc_type}[/red]")
+        if doc_info.node_type != "docx":
+            console.print(f"[red]❌ 只支持 docx 类型文档，当前类型: {doc_info.node_type}[/red]")
             raise typer.Exit(1)
 
         writer = FeishuWriter(sdk=exporter.sdk)
 
         # 写入内容
         blocks = writer.write_content(
-            document_id=doc_info.doc_id,
+            document_id=doc_info.node_token,
             content=content,
             file_path=file,
             user_access_token=access_token,
@@ -253,7 +253,7 @@ def update(
 
         # 更新 Block
         writer.update_block(
-            document_id=doc_info.doc_id,
+            document_id=doc_info.node_token,
             block_id=block_id,
             content=content,
             user_access_token=access_token,

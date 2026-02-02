@@ -13,16 +13,7 @@
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 """
 
-import json
-from typing import List, Optional
-
-import lark_oapi as lark
-from lark_oapi.api.wiki.v2 import (
-    GetNodeSpaceRequest,
-    GetNodeSpaceResponse,
-    Node,
-)
-from lark_oapi.core import BaseResponse
+from lark_oapi.api.wiki.v2 import *
 
 from feishu_docx.utils.console import get_console
 from .base import SubModule
@@ -57,15 +48,12 @@ class WikiAPI(SubModule):
             parent_node_token: Optional[str] = None,
             page_size: int = 50,
             page_token: Optional[str] = None,
-    ) -> Optional[dict]:
+    ) -> Optional[ListSpaceNodeResponseBody]:
         """获取知识空间子节点列表"""
-        request = (
-            lark.BaseRequest.builder()
-            .http_method(lark.HttpMethod.GET)
-            .uri(f"/open-apis/wiki/v2/spaces/{space_id}/nodes")
-            .token_types({self._get_token_type()})
+
+        request: ListSpaceNodeRequest = ListSpaceNodeRequest.builder() \
+            .space_id(space_id) \
             .build()
-        )
 
         request.add_query("page_size", str(page_size))
         if page_token:
@@ -74,26 +62,20 @@ class WikiAPI(SubModule):
             request.add_query("parent_node_token", parent_node_token)
 
         option = self._build_option(access_token)
-        response: BaseResponse = self.client.request(request, option)
+        response: ListSpaceNodeResponse = self.client.wiki.v2.space_node.list(request, option)
 
         if not response.success():
             self._log_error("wiki.v2.spaces.nodes.list", response)
             raise RuntimeError("获取知识空间子节点列表失败")
 
-        try:
-            content = response.raw.content.decode("utf-8")
-            resp_json = json.loads(content)
-            return resp_json.get("data", {})
-        except Exception as e:
-            console.print(f"[red]解析知识空间节点列表失败: {e}[/red]")
-            raise RuntimeError("解析知识空间节点列表失败")
+        return response.data
 
     def get_all_space_nodes(
             self,
             space_id: str,
             access_token: str,
             parent_node_token: Optional[str] = None,
-    ) -> List[dict]:
+    ) -> List[Node]:
         """获取知识空间下的所有子节点"""
         all_nodes = []
         page_token = None
@@ -109,9 +91,9 @@ class WikiAPI(SubModule):
             if not result:
                 break
 
-            all_nodes.extend(result.get("items", []))
-            has_more = result.get("has_more", False)
-            page_token = result.get("page_token")
+            all_nodes.extend(result.items)
+            has_more = result.has_more
+            page_token = result.page_token
 
         return all_nodes
 
@@ -120,40 +102,30 @@ class WikiAPI(SubModule):
             token: str,
             access_token: str,
             obj_type: str = "wiki",
-    ) -> Optional[dict]:
+    ) -> Optional[Node]:
         """获取知识空间节点信息"""
-        request = (
-            lark.BaseRequest.builder()
-            .http_method(lark.HttpMethod.GET)
-            .uri("/open-apis/wiki/v2/spaces/get_node")
-            .token_types({self._get_token_type()})
+
+        # 构造请求对象
+        request: GetNodeSpaceRequest = GetNodeSpaceRequest.builder() \
+            .token(token) \
+            .obj_type(obj_type) \
             .build()
-        )
 
-        request.add_query("token", token)
-        if obj_type != "wiki":
-            request.add_query("obj_type", obj_type)
-
+        # 发起请求
         option = self._build_option(access_token)
-        response: BaseResponse = self.client.request(request, option)
+        response: GetNodeSpaceResponse = self.client.wiki.v2.space.get_node(request, option)
 
         if not response.success():
             self._log_error("wiki.v2.spaces.get_node", response)
             raise RuntimeError("获取知识空间节点信息失败")
 
-        try:
-            content = response.raw.content.decode("utf-8")
-            resp_json = json.loads(content)
-            return resp_json.get("data", {}).get("node", {})
-        except Exception as e:
-            console.print(f"[red]解析知识空间节点信息失败: {e}[/red]")
-            raise RuntimeError("解析知识空间节点信息失败")
+        return response.data.node
 
     def get_space_info(
             self,
             space_id: str,
             access_token: str,
-    ) -> dict:
+    ) -> Optional[Space]:
         """
         获取知识空间信息
 
@@ -164,25 +136,16 @@ class WikiAPI(SubModule):
         Returns:
             dict: 包含 name, description 等字段
         """
-        request = (
-            lark.BaseRequest.builder()
-            .http_method(lark.HttpMethod.GET)
-            .uri(f"/open-apis/wiki/v2/spaces/{space_id}")
-            .token_types({self._get_token_type()})
+
+        request: GetSpaceRequest = GetSpaceRequest.builder() \
+            .space_id(space_id) \
             .build()
-        )
 
         option = self._build_option(access_token)
-        response: BaseResponse = self.client.request(request, option)
+        response: GetSpaceResponse = self.client.wiki.v2.space.get(request, option)
 
         if not response.success():
             self._log_error("wiki.v2.spaces.get", response)
             raise RuntimeError("获取知识空间信息失败")
 
-        try:
-            content = response.raw.content.decode("utf-8")
-            resp_json = json.loads(content)
-            return resp_json.get("data", {}).get("space", {})
-        except Exception as e:
-            console.print(f"[red]解析知识空间信息失败: {e}[/red]")
-            raise RuntimeError("解析知识空间信息失败")
+        return response.data.space
