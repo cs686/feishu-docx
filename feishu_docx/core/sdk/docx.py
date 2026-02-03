@@ -310,7 +310,7 @@ class DocxAPI(SubModule):
             raise RuntimeError(f"Markdown 转换失败: {response.msg}")
 
         data = json.loads(response.raw.content)
-        return data.get("data", {}).get("children", [])
+        return data.get("data", {}).get("blocks", [])
 
     def delete_blocks(
             self, document_id: str, block_id: str, start_index: int, end_index: int, access_token: str
